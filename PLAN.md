@@ -188,7 +188,7 @@ Complete implementation plan for Claude Monitor.
 
 #### Tray Menu Updates
 - [ ] Add separator between menu items
-- [ ] Show usage percentage in tray tooltip
+- [x] Show usage percentage in tray tooltip
 - [ ] Add "Open Settings" menu item
 
 ### Short Term (Medium Priority)

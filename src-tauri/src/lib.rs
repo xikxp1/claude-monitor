@@ -182,6 +182,36 @@ fn get_default_settings() -> Settings {
     Settings::default()
 }
 
+#[tauri::command]
+fn update_tray_tooltip(app: tauri::AppHandle, usage: Option<UsageData>) {
+    if let Some(tray) = app.tray_by_id("main") {
+        let tooltip = match usage {
+            Some(data) => {
+                let mut parts = Vec::new();
+                if let Some(ref period) = data.five_hour {
+                    parts.push(format!("5h: {:.0}%", period.utilization));
+                }
+                if let Some(ref period) = data.seven_day {
+                    parts.push(format!("7d: {:.0}%", period.utilization));
+                }
+                if let Some(ref period) = data.seven_day_sonnet {
+                    parts.push(format!("Sonnet: {:.0}%", period.utilization));
+                }
+                if let Some(ref period) = data.seven_day_opus {
+                    parts.push(format!("Opus: {:.0}%", period.utilization));
+                }
+                if parts.is_empty() {
+                    "Claude Monitor".to_string()
+                } else {
+                    format!("Claude Monitor\n{}", parts.join(" | "))
+                }
+            }
+            None => "Claude Monitor".to_string(),
+        };
+        let _ = tray.set_tooltip(Some(&tooltip));
+    }
+}
+
 // ============================================================================
 // System Tray
 // ============================================================================
@@ -195,6 +225,7 @@ fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
 
     let _tray = TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().unwrap().clone())
+        .tooltip("Claude Monitor")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -280,7 +311,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
-        .invoke_handler(tauri::generate_handler![get_usage, get_default_settings])
+        .invoke_handler(tauri::generate_handler![get_usage, get_default_settings, update_tray_tooltip])
         .setup(|app| {
             // Initialize Stronghold with argon2 key derivation
             let salt_path = app

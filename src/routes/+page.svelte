@@ -288,6 +288,9 @@ async function fetchUsage() {
     usageData = newUsageData;
     lastUpdateTime = new Date();
 
+    // Update tray tooltip with usage data
+    await invoke("update_tray_tooltip", { usage: newUsageData });
+
     // Check for usage resets and clear notification state if needed
     notificationState = resetNotificationStateIfNeeded(newUsageData, notificationState);
 
@@ -336,6 +339,9 @@ async function clearSettings() {
   notificationSettings = getDefaultNotificationSettings();
   notificationState = getDefaultNotificationState();
   showSettings = false;
+
+  // Reset tray tooltip
+  await invoke("update_tray_tooltip", { usage: null });
 }
 </script>
 
