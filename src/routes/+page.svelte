@@ -20,6 +20,11 @@ import {
   processNotifications,
   resetNotificationStateIfNeeded,
 } from "$lib/notifications";
+import {
+  saveCredentials,
+  getCredentials,
+  deleteCredentials,
+} from "$lib/secureStorage";
 
 let settings: Settings = $state({
   organization_id: null,
@@ -150,21 +155,26 @@ onMount(() => {
 });
 
 async function initApp() {
-  // Load credentials and general settings
-  const savedOrgId = await store.get<string>("organization_id");
-  const savedToken = await store.get<string>("session_token");
+  // Load credentials from secure storage (Stronghold)
+  try {
+    const credentials = await getCredentials();
+    settings.organization_id = credentials.organizationId;
+    settings.session_token = credentials.sessionToken;
+    orgIdInput = credentials.organizationId ?? "";
+    tokenInput = credentials.sessionToken ?? "";
+  } catch (e) {
+    console.error("Failed to load credentials:", e);
+  }
+
+  // Load general settings from store
   const savedInterval = await store.get<number>("refresh_interval_minutes");
   const savedAutoRefresh = await store.get<boolean>("auto_refresh_enabled");
 
   settings = {
-    organization_id: savedOrgId ?? null,
-    session_token: savedToken ?? null,
+    ...settings,
     refresh_interval_minutes: savedInterval ?? 5,
     auto_refresh_enabled: savedAutoRefresh ?? true,
   };
-
-  orgIdInput = settings.organization_id ?? "";
-  tokenInput = settings.session_token ?? "";
 
   // Load notification settings
   const savedNotificationSettings = await store.get<NotificationSettings>("notification_settings");
@@ -199,9 +209,8 @@ async function saveSettings() {
   error = null;
 
   try {
-    await store.set("organization_id", orgIdInput);
-    await store.set("session_token", tokenInput);
-    await store.set("refresh_interval_minutes", settings.refresh_interval_minutes);
+    // Save credentials to secure storage (Stronghold)
+    await saveCredentials(orgIdInput, tokenInput);
 
     settings = {
       ...settings,
@@ -298,11 +307,18 @@ async function fetchUsage() {
 
 async function clearSettings() {
   stopAutoRefresh();
+
+  // Delete credentials from secure storage
+  await deleteCredentials();
+
+  // Clear other settings from store
   await store.clear();
+
   settings = {
     organization_id: null,
     session_token: null,
     refresh_interval_minutes: 5,
+    auto_refresh_enabled: true,
   };
   orgIdInput = "";
   tokenInput = "";

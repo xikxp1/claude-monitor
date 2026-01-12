@@ -20,7 +20,8 @@
     "@tauri-apps/plugin-autostart": "^2",
     "@tauri-apps/plugin-notification": "^2",
     "@tauri-apps/plugin-opener": "^2",
-    "@tauri-apps/plugin-store": "^2"
+    "@tauri-apps/plugin-store": "^2",
+    "@tauri-apps/plugin-stronghold": "^2"
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.11",

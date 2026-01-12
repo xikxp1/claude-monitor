@@ -282,7 +282,17 @@ pub fn run() {
         ))
         .invoke_handler(tauri::generate_handler![get_usage, get_default_settings])
         .setup(|app| {
-            // Create tray first (required by NSPopover plugin which looks up tray by ID "main")
+            // Initialize Stronghold with argon2 key derivation
+            let salt_path = app
+                .path()
+                .app_local_data_dir()
+                .expect("could not resolve app local data path")
+                .join("salt.txt");
+            app.handle().plugin(
+                tauri_plugin_stronghold::Builder::with_argon2(&salt_path).build(),
+            )?;
+
+            // Create tray (required by NSPopover plugin which looks up tray by ID "main")
             create_tray(app.handle())?;
 
             // Set activation policy to Accessory on macOS for proper tray app behavior

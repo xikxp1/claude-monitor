@@ -163,6 +163,18 @@ Complete implementation plan for Claude Monitor.
 - [x] Load current autostart state on init
 - [x] Enable/disable autostart on toggle
 
+### Phase 7: Secure Token Storage
+
+#### 7.1 Stronghold Integration
+- [x] Add `tauri-plugin-stronghold` (Rust + npm)
+- [x] Add permissions to capabilities (initialize, save, create-client, etc.)
+- [x] Initialize Stronghold plugin with key derivation
+- [x] Create `secureStorage.ts` utility module
+- [x] Migrate credentials from plain store to encrypted Stronghold storage
+- [x] Update initApp to load credentials from Stronghold
+- [x] Update saveSettings to save credentials to Stronghold
+- [x] Update clearSettings to delete credentials from Stronghold
+
 ---
 
 ## Next Steps (Prioritized)
@@ -191,14 +203,8 @@ Complete implementation plan for Claude Monitor.
 
 #### Settings Page Enhancements
 - [x] Refresh interval slider/dropdown (moved to Phase 5.2)
+- [x] Secure token storage (moved to Phase 7)
 - [ ] Clear credentials button with confirmation
-
-#### Secure Token Storage
-- [ ] Add `tauri-plugin-keychain` or equivalent
-- [ ] Migrate session token from JSON to OS keychain
-- [ ] macOS: Keychain Services
-- [ ] Windows: Credential Manager
-- [ ] Linux: Secret Service API
 
 ### Long Term (Lower Priority)
 
@@ -228,6 +234,7 @@ tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 tauri-plugin-nspopover = { git = "https://github.com/freethinkel/tauri-nspopover-plugin.git", version = "4.0.0" }
 tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"
+tauri-plugin-stronghold = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
@@ -243,7 +250,8 @@ chrono = { version = "0.4", features = ["serde"] }
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-autostart": "^2",
     "@tauri-apps/plugin-notification": "^2",
-    "@tauri-apps/plugin-store": "^2"
+    "@tauri-apps/plugin-store": "^2",
+    "@tauri-apps/plugin-stronghold": "^2"
   }
 }
 ```
@@ -259,6 +267,7 @@ claude-monitor/
 │   │   ├── components/
 │   │   │   └── NotificationSettings.svelte  # Notification config UI
 │   │   ├── notifications.ts                  # Notification logic
+│   │   ├── secureStorage.ts                  # Stronghold secure storage utility
 │   │   └── types.ts                          # TypeScript types
 │   ├── routes/
 │   │   └── +page.svelte                      # Main dashboard + settings
@@ -313,3 +322,13 @@ The Claude usage API returns:
 ### Platform-Specific Behavior
 - **macOS**: Uses NSPopover for proper fullscreen support, auto-hides on focus loss
 - **Windows/Linux**: Uses positioner plugin, manual hide on focus loss, always-on-top window
+
+### Stronghold Secure Storage
+- Uses `tauri-plugin-stronghold` for encrypted credential storage
+- Credentials stored in `credentials.stronghold` file in app data directory
+- Provides cross-platform encrypted storage (not OS keychain, but Tauri's own secure format)
+- Key derivation using built-in **argon2** via `Builder::with_argon2(&salt_path)`
+- Salt stored in `salt.txt` in app local data directory
+- Plugin initialized in setup function to access app paths
+- `secureStorage.ts` utility provides: `saveCredentials()`, `getCredentials()`, `deleteCredentials()`
+- Organization ID and session token stored separately in Stronghold store
