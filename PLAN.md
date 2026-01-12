@@ -226,7 +226,7 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
 - [x] Time range selector (1h, 6h, 24h, 7d, 30d)
 - [x] Usage trend chart section
 - [x] Statistics summary section
-- [ ] Usage type filter (show/hide specific types)
+- [x] Usage type filter (show/hide specific types)
 - [ ] Export data option (CSV)
 
 #### 8.5 Chart Styling

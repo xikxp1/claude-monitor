@@ -85,6 +85,12 @@
   let analyticsHistory: UsageHistoryRecord[] = $state([]);
   let analyticsLoading = $state(false);
 
+  // Analytics filters
+  let showFiveHour = $state(true);
+  let showSevenDay = $state(true);
+  let showSonnet = $state(true);
+  let showOpus = $state(true);
+
   const isConfigured = $derived(
     settings.organization_id !== null && settings.session_token !== null,
   );
@@ -671,36 +677,64 @@
       <section class="analytics">
         <h2>Usage Analytics</h2>
 
-        <div class="time-range-selector">
-          <button
-            class="range-btn"
-            class:active={analyticsTimeRange === "1h"}
-            onclick={() => changeTimeRange("1h")}>1h</button
-          >
-          <button
-            class="range-btn"
-            class:active={analyticsTimeRange === "6h"}
-            onclick={() => changeTimeRange("6h")}>6h</button
-          >
-          <button
-            class="range-btn"
-            class:active={analyticsTimeRange === "24h"}
-            onclick={() => changeTimeRange("24h")}>24h</button
-          >
-          <button
-            class="range-btn"
-            class:active={analyticsTimeRange === "7d"}
-            onclick={() => changeTimeRange("7d")}>7d</button
-          >
-          <button
-            class="range-btn"
-            class:active={analyticsTimeRange === "30d"}
-            onclick={() => changeTimeRange("30d")}>30d</button
-          >
+        <div class="analytics-controls">
+          <div class="time-range-selector">
+            <button
+              class="range-btn"
+              class:active={analyticsTimeRange === "1h"}
+              onclick={() => changeTimeRange("1h")}>1h</button
+            >
+            <button
+              class="range-btn"
+              class:active={analyticsTimeRange === "6h"}
+              onclick={() => changeTimeRange("6h")}>6h</button
+            >
+            <button
+              class="range-btn"
+              class:active={analyticsTimeRange === "24h"}
+              onclick={() => changeTimeRange("24h")}>24h</button
+            >
+            <button
+              class="range-btn"
+              class:active={analyticsTimeRange === "7d"}
+              onclick={() => changeTimeRange("7d")}>7d</button
+            >
+            <button
+              class="range-btn"
+              class:active={analyticsTimeRange === "30d"}
+              onclick={() => changeTimeRange("30d")}>30d</button
+            >
+          </div>
+
+          <div class="usage-type-filter">
+            <label class="filter-item" style="--color: #3b82f6">
+              <input type="checkbox" bind:checked={showFiveHour} />
+              <span>5h</span>
+            </label>
+            <label class="filter-item" style="--color: #8b5cf6">
+              <input type="checkbox" bind:checked={showSevenDay} />
+              <span>7d</span>
+            </label>
+            <label class="filter-item" style="--color: #22c55e">
+              <input type="checkbox" bind:checked={showSonnet} />
+              <span>Sonnet</span>
+            </label>
+            <label class="filter-item" style="--color: #f59e0b">
+              <input type="checkbox" bind:checked={showOpus} />
+              <span>Opus</span>
+            </label>
+          </div>
         </div>
 
         <div class="chart-section">
-          <UsageLineChart data={analyticsHistory} height={220} />
+          <UsageLineChart
+            data={analyticsHistory}
+            height={220}
+            {showFiveHour}
+            {showSevenDay}
+            {showSonnet}
+            {showOpus}
+          />
         </div>
       </section>
     {:else}
@@ -903,6 +937,13 @@
     font-weight: 600;
   }
 
+  .analytics-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+
   .time-range-selector {
     display: flex;
     gap: 4px;
@@ -911,9 +952,39 @@
     padding: 4px;
   }
 
+  .usage-type-filter {
+    display: flex;
+    gap: 8px;
+  }
+
+  .filter-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.7rem;
+    color: #666;
+    cursor: pointer;
+  }
+
+  .filter-item input[type="checkbox"] {
+    width: 12px;
+    height: 12px;
+    accent-color: var(--color);
+    cursor: pointer;
+  }
+
+  .filter-item span {
+    color: var(--color);
+    font-weight: 500;
+  }
+
   @media (prefers-color-scheme: dark) {
     .time-range-selector {
       background: #2a2a2a;
+    }
+
+    .filter-item {
+      color: #999;
     }
   }
 
