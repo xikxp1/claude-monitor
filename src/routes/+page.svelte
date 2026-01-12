@@ -918,6 +918,7 @@ async function clearSettings() {
     gap: 2px;
     font-size: 0.75rem;
     color: #888;
+    margin-left: 4px;
   }
 
   .last-update,
