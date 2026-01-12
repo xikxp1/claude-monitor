@@ -72,6 +72,67 @@ impl Default for Settings {
 }
 
 // ============================================================================
+// Notification Types
+// ============================================================================
+
+/// Notification rule for a single usage type
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationRule {
+    /// Enable interval-based notifications (every X%)
+    pub interval_enabled: bool,
+    /// Interval percentage (e.g., 10 means notify at 10%, 20%, 30%, etc.)
+    pub interval_percent: u32,
+    /// Enable threshold-based notifications
+    pub threshold_enabled: bool,
+    /// List of threshold percentages to notify at (e.g., [50, 80, 90])
+    pub thresholds: Vec<u32>,
+}
+
+impl Default for NotificationRule {
+    fn default() -> Self {
+        Self {
+            interval_enabled: false,
+            interval_percent: 10,
+            threshold_enabled: true,
+            thresholds: vec![80, 90],
+        }
+    }
+}
+
+/// Notification settings for all usage types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationSettings {
+    pub enabled: bool,
+    pub five_hour: NotificationRule,
+    pub seven_day: NotificationRule,
+    pub seven_day_sonnet: NotificationRule,
+    pub seven_day_opus: NotificationRule,
+}
+
+impl Default for NotificationSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            five_hour: NotificationRule::default(),
+            seven_day: NotificationRule::default(),
+            seven_day_sonnet: NotificationRule::default(),
+            seven_day_opus: NotificationRule::default(),
+        }
+    }
+}
+
+/// Tracks which notifications have been sent to avoid duplicates
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NotificationState {
+    pub five_hour_last: f64,
+    pub seven_day_last: f64,
+    pub seven_day_sonnet_last: f64,
+    pub seven_day_opus_last: f64,
+    /// Set of already-fired threshold notifications (format: "type:threshold")
+    pub fired_thresholds: Vec<String>,
+}
+
+// ============================================================================
 // API Client
 // ============================================================================
 
@@ -214,6 +275,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_nspopover::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![get_usage, get_default_settings])
         .setup(|app| {
             // Create tray first (required by NSPopover plugin which looks up tray by ID "main")

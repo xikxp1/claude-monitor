@@ -10,6 +10,8 @@ Always use `bun` commands instead of `npm` commands.
 
 Always use `bun lint:fix` and `bun check` to lint and check the code after making changes.
 
+Always consult PLAN.md to see the current state of the project and the planned features. Update PLAN.md as you make changes.
+
 ## Architecture
 
 ### Frontend (SvelteKit 5)

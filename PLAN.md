@@ -2,275 +2,295 @@
 
 Complete implementation plan for Claude Monitor.
 
-## Phase 1: Core Infrastructure
+## Completed
 
-### 1.1 System Tray Setup
-- [ ] Add `tauri-plugin-tray` dependency to Cargo.toml
-- [ ] Configure tray in `tauri.conf.json`
-- [ ] Create tray icon assets (16x16, 32x32 for different platforms)
-- [ ] Implement tray initialization in `lib.rs`
-- [ ] Add tray menu items:
-  - Show/Hide Window
-  - Refresh Usage
-  - Settings
+### Phase 1: Core Infrastructure
+
+#### 1.1 System Tray Setup
+- [x] Configure tray in Tauri 2 (built-in `tray-icon` feature)
+- [x] Use default app icon for tray
+- [x] Implement tray initialization in `lib.rs`
+- [x] Add tray menu items:
+  - Show Window
+  - Refresh
   - Quit
-- [ ] Handle tray click events (left-click shows window)
+- [x] Handle tray click events (left-click shows popover on macOS)
+- [x] **NSPopover integration for macOS** - Shows window on top of fullscreen apps
 
-### 1.2 Window Management
-- [ ] Configure window to hide on close (minimize to tray)
-- [ ] Add `tauri-plugin-window-state` for remembering position/size
-- [ ] Implement show/hide toggle from tray
-- [ ] Set appropriate window properties:
-  - Decorations
-  - Resizable with min/max bounds
-  - Start hidden option
+#### 1.2 Window Management
+- [x] Configure window to hide on close (minimize to tray)
+- [x] Implement show/hide toggle from tray
+- [x] Set window properties:
+  - No decorations (popup style)
+  - Fixed size (400x500)
+  - Start hidden
+  - Skip taskbar
+  - Always on top (non-macOS)
+- [x] **macOS**: Use `tauri-plugin-nspopover` for proper popover behavior
+- [x] **macOS**: Set `ActivationPolicy::Accessory` for tray-only app
+- [x] **Non-macOS**: Use `tauri-plugin-positioner` for tray positioning
 
-### 1.3 Secure Storage
-- [ ] Add `tauri-plugin-store` for general settings
-- [ ] Implement settings storage:
+#### 1.3 Settings Storage
+- [x] Add `tauri-plugin-store` for settings persistence
+- [x] Implement settings storage:
   - Organization ID
+  - Session token (stored in settings.json for now)
   - Refresh interval (default: 5 minutes)
-  - Auto-start preference
-  - Theme preference
-- [ ] Add keychain integration for session token (platform-specific):
-  - macOS: Keychain Services
-  - Windows: Credential Manager
-  - Linux: Secret Service API
 
-## Phase 2: API Integration
+### Phase 2: API Integration
 
-### 2.1 HTTP Client Setup
-- [ ] Add `reqwest` with TLS support to Cargo.toml
-- [ ] Create API client module (`src-tauri/src/api.rs`)
-- [ ] Implement base request builder with headers:
+#### 2.1 HTTP Client Setup
+- [x] Add `reqwest` with `rustls-tls` support
+- [x] Implement request with headers:
   ```
   Cookie: sessionKey={token}
   User-Agent: Claude-Monitor/0.1.0
   ```
 
-### 2.2 Usage Endpoint Integration
-- [ ] Define usage response types:
+#### 2.2 Usage Endpoint Integration
+- [x] Define usage response types matching actual API:
   ```rust
-  struct UsageResponse {
-      daily_usage: Vec<DailyUsage>,
-      billing_period: BillingPeriod,
-      limits: UsageLimits,
+  struct UsageData {
+      five_hour: Option<UsagePeriod>,
+      seven_day: Option<UsagePeriod>,
+      seven_day_sonnet: Option<UsagePeriod>,
+      seven_day_opus: Option<UsagePeriod>,
   }
   ```
-- [ ] Implement `fetch_usage` command
-- [ ] Add response caching (reduce API calls)
-- [ ] Handle API errors gracefully:
+- [x] Implement `fetch_usage_from_api` function
+- [x] Handle API errors:
   - 401: Invalid/expired token
   - 429: Rate limited
   - 5xx: Server errors
 
-### 2.3 Tauri Commands
-- [ ] `get_usage()` - Fetch current usage data
-- [ ] `save_settings(settings)` - Save user preferences
-- [ ] `get_settings()` - Load user preferences
-- [ ] `set_session_token(token)` - Store token securely
-- [ ] `validate_token()` - Check if token is valid
-- [ ] `clear_credentials()` - Remove stored credentials
+#### 2.3 Tauri Commands
+- [x] `get_usage(org_id, session_token)` - Fetch current usage data
+- [x] `get_default_settings()` - Get default settings
 
-## Phase 3: Frontend Dashboard
+### Phase 3: Frontend Dashboard
 
-### 3.1 Setup Page (First Run)
-- [ ] Create `/setup` route
-- [ ] Organization ID input field
-- [ ] Session token input (password field)
-- [ ] "How to get your token" instructions
-- [ ] Validate and save on submit
-- [ ] Redirect to dashboard on success
+#### 3.1 Setup Page
+- [x] Integrated setup form in main page
+- [x] Organization ID input field
+- [x] Session token input (password field)
+- [x] "How to get your token" instructions (collapsible)
+- [x] Save and validate on submit
+- [x] Show dashboard on success
 
-### 3.2 Main Dashboard
-- [ ] Create dashboard layout component
-- [ ] Usage summary card:
-  - Current period usage
-  - Usage limit
-  - Percentage used (progress bar)
-  - Days remaining in period
-- [ ] Daily usage chart (bar or line chart)
-- [ ] Last updated timestamp
-- [ ] Manual refresh button
-- [ ] Auto-refresh indicator
+#### 3.2 Main Dashboard
+- [x] Dashboard layout with header
+- [x] Usage cards for each period:
+  - 5 Hour usage
+  - 7 Day usage
+  - Sonnet (7 Day) usage
+  - Opus (7 Day) usage
+- [x] Progress bar with percentage
+- [x] Reset time countdown
+- [x] Manual refresh button
+- [x] Settings toggle button
 
-### 3.3 Usage Visualization
-- [ ] Add charting library (Chart.js or similar lightweight option)
-- [ ] Daily usage bar chart
-- [ ] Usage trend line (optional)
-- [ ] Color coding:
+#### 3.3 Usage Visualization
+- [x] Progress bars for each usage period
+- [x] Color coding:
   - Green: < 50% used
   - Yellow: 50-80% used
   - Red: > 80% used
+- [x] Percentage display
 
-### 3.4 Settings Page
-- [ ] Create `/settings` route
-- [ ] Refresh interval selector
-- [ ] Theme toggle (light/dark/system)
-- [ ] Auto-start on login toggle
-- [ ] Clear credentials button
-- [ ] About section with version
+#### 3.5 Styling
+- [x] CSS variables for theming
+- [x] Dark mode support (prefers-color-scheme)
+- [x] Consistent component styles
+- [x] Loading states
+- [x] Popup-style container with rounded corners and shadow
 
-### 3.5 Styling
-- [ ] Define CSS variables for theming
-- [ ] Implement dark mode support
-- [ ] Responsive layout (if window resizable)
-- [ ] Consistent component styles
-- [ ] Loading states and skeletons
+### Phase 4: Notifications
 
-## Phase 4: Background Operations
+#### 4.1 Notification System
+- [x] Add `tauri-plugin-notification` (Rust + npm)
+- [x] Define notification types:
+  ```typescript
+  interface NotificationRule {
+    interval_enabled: boolean;    // Enable "every X%" notifications
+    interval_percent: number;     // e.g., 10 for every 10%
+    threshold_enabled: boolean;   // Enable threshold notifications
+    thresholds: number[];         // e.g., [50, 80, 90]
+  }
+  ```
+- [x] Separate rules for each usage type (5h, 7d, Sonnet, Opus)
+- [x] Global enable/disable toggle
 
-### 4.1 Auto-Refresh
-- [ ] Implement background timer in Rust
-- [ ] Configurable interval (1-60 minutes)
-- [ ] Emit events to frontend on data update
-- [ ] Pause refresh when window hidden (optional)
+#### 4.2 Notification Logic
+- [x] Interval notifications: Trigger at every X% (configurable: 5%, 10%, 15%, 20%, 25%)
+- [x] Threshold notifications: Trigger when crossing specific percentages
+- [x] Track notification state to avoid duplicates
+- [x] Auto-reset notification state when usage resets (drops > 20%)
+- [x] Persist notification state across app restarts
 
-### 4.2 Notifications
-- [ ] Add `tauri-plugin-notification` dependency
-- [ ] Usage threshold alerts:
-  - 80% usage warning
-  - 90% usage critical
-  - Limit reached
-- [ ] Make notifications optional in settings
+#### 4.3 Settings UI
+- [x] Tabbed settings interface (Credentials | Notifications)
+- [x] Per-usage-type configuration with collapsible sections
+- [x] Checkbox toggles for interval/threshold modes
+- [x] Dropdown for interval percentage
+- [x] Comma-separated input for custom thresholds
+- [x] Real-time save on change
 
-### 4.3 Auto-Start
-- [ ] Add `tauri-plugin-autostart` dependency
+---
+
+## Next Steps (Prioritized)
+
+### Immediate (High Priority)
+
+#### Error State Improvements
+- [ ] Better error messages for common failures
+- [ ] Network offline indicator
+- [ ] Session expired prompt with re-login option
+
+#### Tray Menu Updates
+- [ ] Add separator between menu items
+- [ ] Show usage percentage in tray tooltip
+- [ ] Add "Open Settings" menu item
+
+#### Auto-Refresh
+- [ ] Implement background timer in frontend (setInterval)
+- [ ] Use configured refresh interval from settings
+- [ ] Emit `refresh-usage` event from timer
+- [ ] Pause when popover/window hidden (optional)
+
+### Short Term (Medium Priority)
+
+#### Custom Tray Icons
+- [ ] Design tray icon assets (16x16, 32x32, @2x)
+- [ ] Different icon states:
+  - Normal (gray)
+  - Warning (yellow) - > 80% usage
+  - Critical (red) - > 95% usage
+- [ ] Update tray icon based on usage level
+
+#### Settings Page Enhancements
+- [ ] Refresh interval slider/dropdown
+- [ ] Clear credentials button with confirmation
+
+#### Secure Token Storage
+- [ ] Add `tauri-plugin-keychain` or equivalent
+- [ ] Migrate session token from JSON to OS keychain
+- [ ] macOS: Keychain Services
+- [ ] Windows: Credential Manager
+- [ ] Linux: Secret Service API
+
+### Long Term (Lower Priority)
+
+#### Auto-Start
+- [ ] Add `tauri-plugin-autostart`
 - [ ] Configure based on user preference
 - [ ] Start minimized to tray
 
-## Phase 5: Error Handling & UX
+#### Charts & Analytics
+- [ ] Add lightweight charting library
+- [ ] Usage trend over time
+- [ ] Historical data storage
 
-### 5.1 Error States
-- [ ] Network error display
-- [ ] Authentication error with re-login prompt
-- [ ] API error messages
-- [ ] Offline mode indicator
+#### Distribution
+- [ ] App icon design (all sizes)
+- [ ] macOS notarization
+- [ ] Windows code signing
+- [ ] Linux packages (AppImage, deb)
+- [ ] GitHub releases
 
-### 5.2 Loading States
-- [ ] Initial load skeleton
-- [ ] Refresh loading indicator
-- [ ] Button loading states
+---
 
-### 5.3 Empty States
-- [ ] No data available message
-- [ ] Setup required prompt
+## Current Dependencies
 
-## Phase 6: Polish & Distribution
-
-### 6.1 App Icon & Branding
-- [ ] Design app icon (all required sizes)
-- [ ] Design tray icons (normal, alert states)
-- [ ] Update `tauri.conf.json` with icon paths
-
-### 6.2 Build Configuration
-- [ ] Configure bundle settings for each platform
-- [ ] Set up code signing (macOS notarization)
-- [ ] Configure Windows installer
-- [ ] Create Linux packages (AppImage, deb)
-
-### 6.3 Testing
-- [ ] Unit tests for API module
-- [ ] Unit tests for settings storage
-- [ ] Frontend component tests
-- [ ] E2E tests for critical flows
-- [ ] Manual testing on all platforms
-
-### 6.4 Documentation
-- [ ] Complete README with screenshots
-- [ ] Add CHANGELOG.md
-- [ ] Write CONTRIBUTING.md
-- [ ] Add LICENSE file
-
-## Dependencies Summary
-
-### Rust (Cargo.toml additions)
+### Rust (Cargo.toml)
 ```toml
 [dependencies]
-reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
-tokio = { version = "1", features = ["full"] }
-thiserror = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
-
-# Tauri plugins
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
 tauri-plugin-store = "2"
+tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
+tauri-plugin-nspopover = { git = "https://github.com/freethinkel/tauri-nspopover-plugin.git", version = "4.0.0" }
 tauri-plugin-notification = "2"
-tauri-plugin-autostart = "2"
-tauri-plugin-window-state = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["full"] }
+thiserror = "1"
+chrono = { version = "0.4", features = ["serde"] }
 ```
 
-### Frontend (package.json additions)
+### Frontend (package.json)
 ```json
 {
   "dependencies": {
-    "@tauri-apps/plugin-store": "^2",
+    "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-notification": "^2",
-    "chart.js": "^4"
+    "@tauri-apps/plugin-store": "^2"
   }
 }
 ```
 
-## File Structure (Final)
+---
+
+## Current File Structure
 
 ```
 claude-monitor/
 ├── src/
 │   ├── lib/
 │   │   ├── components/
-│   │   │   ├── UsageCard.svelte
-│   │   │   ├── UsageChart.svelte
-│   │   │   ├── SettingsForm.svelte
-│   │   │   └── TrayStatus.svelte
-│   │   ├── stores/
-│   │   │   └── usage.ts
-│   │   ├── api.ts
-│   │   └── types.ts
+│   │   │   └── NotificationSettings.svelte  # Notification config UI
+│   │   ├── notifications.ts                  # Notification logic
+│   │   └── types.ts                          # TypeScript types
 │   ├── routes/
-│   │   ├── +layout.svelte
-│   │   ├── +page.svelte          # Dashboard
-│   │   ├── setup/+page.svelte
-│   │   └── settings/+page.svelte
+│   │   └── +page.svelte                      # Main dashboard + settings
 │   └── app.html
 ├── src-tauri/
 │   ├── src/
-│   │   ├── api.rs                # API client
-│   │   ├── commands.rs           # Tauri commands
-│   │   ├── config.rs             # Settings management
-│   │   ├── tray.rs               # Tray setup
-│   │   ├── lib.rs                # Main app
-│   │   └── main.rs
+│   │   ├── lib.rs                            # Rust backend (API, tray, commands)
+│   │   └── main.rs                           # Entry point
+│   ├── capabilities/
+│   │   └── default.json                      # Permissions
 │   ├── icons/
 │   ├── Cargo.toml
 │   └── tauri.conf.json
 ├── static/
-├── tests/
-├── README.md
 ├── CLAUDE.md
 ├── PLAN.md
-├── CHANGELOG.md
+├── README.md
 └── package.json
 ```
 
-## Implementation Order
+---
 
-Recommended order for implementation:
+## Technical Notes
 
-1. **Phase 1.1-1.2**: Get tray and window working first
-2. **Phase 1.3**: Add settings storage
-3. **Phase 2.1-2.2**: Implement API client
-4. **Phase 3.1**: Setup page for initial configuration
-5. **Phase 2.3**: Tauri commands to connect frontend/backend
-6. **Phase 3.2-3.3**: Dashboard with usage display
-7. **Phase 4.1**: Auto-refresh functionality
-8. **Phase 3.4-3.5**: Settings and styling
-9. **Phase 4.2-4.3**: Notifications and auto-start
-10. **Phase 5**: Error handling polish
-11. **Phase 6**: Final polish and distribution
+### NSPopover Plugin (macOS)
+- Requires tray with ID "main" to exist before calling `to_popover()`
+- Trait names: `AppExt`, `WindowExt` (not `AppHandleExt`, `WebviewWindowExt`)
+- Plugin must be initialized with `.plugin(tauri_plugin_nspopover::init())`
+- Permissions: `nspopover:allow-show-popover`, `nspopover:allow-hide-popover`, `nspopover:allow-is-popover-shown`
 
-## Notes
+### Notification System
+- Two notification types that can be combined:
+  1. **Interval**: Fires every X% (e.g., at 10%, 20%, 30%...)
+  2. **Threshold**: Fires once when crossing specific values (e.g., 80%, 90%)
+- Each usage type (5h, 7d, Sonnet, Opus) has independent settings
+- State tracking prevents duplicate notifications
+- State auto-resets when usage drops significantly (> 20% decrease)
+- Settings persisted in `settings.json` via `tauri-plugin-store`
+- Permissions: `notification:default`, `notification:allow-notify`, `notification:allow-is-permission-granted`, `notification:allow-request-permission`
 
-- Start with macOS development, then test Windows/Linux
-- The session token is obtained from claude.ai browser cookies
-- Consider adding a "Login with browser" flow in future versions
-- Rate limit API calls to avoid hitting Claude's limits
-- Cache usage data locally to reduce API calls
+### API Response Format
+The Claude usage API returns:
+```json
+{
+  "five_hour": { "utilization": 9.0, "resets_at": "2025-01-12T..." },
+  "seven_day": { "utilization": 5.0, "resets_at": "2025-01-15T..." },
+  "seven_day_sonnet": { "utilization": 3.0, "resets_at": "..." },
+  "seven_day_opus": { "utilization": 0.0, "resets_at": "..." }
+}
+```
+
+### Platform-Specific Behavior
+- **macOS**: Uses NSPopover for proper fullscreen support, auto-hides on focus loss
+- **Windows/Linux**: Uses positioner plugin, manual hide on focus loss, always-on-top window

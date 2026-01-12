@@ -14,7 +14,7 @@
       {
         "title": "Claude Monitor",
         "width": 400,
-        "height": 500,
+        "height": 450,
         "resizable": false,
         "visible": false,
         "skipTaskbar": true,

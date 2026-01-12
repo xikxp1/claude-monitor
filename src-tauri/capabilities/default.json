@@ -8,6 +8,10 @@
     "core:tray:default",
     "opener:default",
     "store:default",
+    "notification:default",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    "notification:allow-notify",
     "nspopover:allow-show-popover",
     "nspopover:allow-hide-popover",
     "nspopover:allow-is-popover-shown"

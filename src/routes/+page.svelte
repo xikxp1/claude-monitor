@@ -3,7 +3,22 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { onMount } from "svelte";
-import type { Settings, UsageData, UsagePeriod } from "$lib/types";
+import type {
+  Settings,
+  UsageData,
+  UsagePeriod,
+  NotificationSettings,
+  NotificationState,
+} from "$lib/types";
+import {
+  getDefaultNotificationSettings,
+  getDefaultNotificationState,
+} from "$lib/types";
+import NotificationSettingsComponent from "$lib/components/NotificationSettings.svelte";
+import {
+  processNotifications,
+  resetNotificationStateIfNeeded,
+} from "$lib/notifications";
 
 let settings: Settings = $state({
   organization_id: null,
@@ -14,6 +29,11 @@ let usageData: UsageData | null = $state(null);
 let loading = $state(false);
 let error: string | null = $state(null);
 let showSettings = $state(false);
+let settingsTab: "credentials" | "notifications" = $state("credentials");
+
+// Notification state
+let notificationSettings: NotificationSettings = $state(getDefaultNotificationSettings());
+let notificationState: NotificationState = $state(getDefaultNotificationState());
 
 // Form inputs
 let orgIdInput = $state("");
@@ -63,6 +83,7 @@ onMount(() => {
 });
 
 async function initApp() {
+  // Load credentials
   const savedOrgId = await store.get<string>("organization_id");
   const savedToken = await store.get<string>("session_token");
   const savedInterval = await store.get<number>("refresh_interval_minutes");
@@ -75,6 +96,18 @@ async function initApp() {
 
   orgIdInput = settings.organization_id ?? "";
   tokenInput = settings.session_token ?? "";
+
+  // Load notification settings
+  const savedNotificationSettings = await store.get<NotificationSettings>("notification_settings");
+  if (savedNotificationSettings) {
+    notificationSettings = savedNotificationSettings;
+  }
+
+  // Load notification state
+  const savedNotificationState = await store.get<NotificationState>("notification_state");
+  if (savedNotificationState) {
+    notificationState = savedNotificationState;
+  }
 
   if (settings.organization_id && settings.session_token) {
     await fetchUsage();
@@ -109,6 +142,11 @@ async function saveSettings() {
   }
 }
 
+async function saveNotificationSettings(newSettings: NotificationSettings) {
+  notificationSettings = newSettings;
+  await store.set("notification_settings", newSettings);
+}
+
 async function fetchUsage() {
   if (!settings.organization_id || !settings.session_token) {
     return;
@@ -118,10 +156,27 @@ async function fetchUsage() {
   error = null;
 
   try {
-    usageData = await invoke<UsageData>("get_usage", {
+    const newUsageData = await invoke<UsageData>("get_usage", {
       orgId: settings.organization_id,
       sessionToken: settings.session_token,
     });
+
+    usageData = newUsageData;
+
+    // Check for usage resets and clear notification state if needed
+    notificationState = resetNotificationStateIfNeeded(newUsageData, notificationState);
+
+    // Process notifications
+    const newNotificationState = await processNotifications(
+      newUsageData,
+      notificationSettings,
+      notificationState,
+    );
+
+    if (newNotificationState !== notificationState) {
+      notificationState = newNotificationState;
+      await store.set("notification_state", notificationState);
+    }
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
     usageData = null;
@@ -140,6 +195,8 @@ async function clearSettings() {
   orgIdInput = "";
   tokenInput = "";
   usageData = null;
+  notificationSettings = getDefaultNotificationSettings();
+  notificationState = getDefaultNotificationState();
   showSettings = false;
 }
 </script>
@@ -179,52 +236,81 @@ async function clearSettings() {
   {#if !isConfigured || showSettings}
     <section class="setup">
       <h2>{isConfigured ? "Settings" : "Setup"}</h2>
-      <p class="hint">
-        Enter your Claude organization ID and session token to view usage.
-      </p>
 
-      <form onsubmit={(e) => { e.preventDefault(); saveSettings(); }}>
-        <label>
-          Organization ID
-          <input
-            type="text"
-            bind:value={orgIdInput}
-            placeholder="uuid-format-org-id"
-            required
-          />
-        </label>
-
-        <label>
-          Session Token
-          <input
-            type="password"
-            bind:value={tokenInput}
-            placeholder="Your session token"
-            required
-          />
-        </label>
-
-        <div class="actions">
-          <button type="submit" disabled={loading}>
-            {loading ? "Saving..." : "Save"}
+      {#if isConfigured}
+        <div class="tabs">
+          <button
+            class="tab"
+            class:active={settingsTab === "credentials"}
+            onclick={() => (settingsTab = "credentials")}
+          >
+            Credentials
           </button>
-          {#if isConfigured}
-            <button type="button" class="danger" onclick={clearSettings}>
-              Clear
-            </button>
-          {/if}
+          <button
+            class="tab"
+            class:active={settingsTab === "notifications"}
+            onclick={() => (settingsTab = "notifications")}
+          >
+            Notifications
+          </button>
         </div>
-      </form>
+      {/if}
 
-      <details class="help">
-        <summary>How to get your session token</summary>
-        <ol>
-          <li>Go to <a href="https://claude.ai" target="_blank">claude.ai</a> and log in</li>
-          <li>Open browser DevTools (F12)</li>
-          <li>Go to Application > Cookies > claude.ai</li>
-          <li>Find the "sessionKey" cookie and copy its value</li>
-        </ol>
-      </details>
+      {#if settingsTab === "credentials" || !isConfigured}
+        <p class="hint">
+          Enter your Claude organization ID and session token to view usage.
+        </p>
+
+        <form onsubmit={(e) => { e.preventDefault(); saveSettings(); }}>
+          <label>
+            Organization ID
+            <input
+              type="text"
+              bind:value={orgIdInput}
+              placeholder="uuid-format-org-id"
+              required
+            />
+          </label>
+
+          <label>
+            Session Token
+            <input
+              type="password"
+              bind:value={tokenInput}
+              placeholder="Your session token"
+              required
+            />
+          </label>
+
+          <div class="actions">
+            <button type="submit" disabled={loading}>
+              {loading ? "Saving..." : "Save"}
+            </button>
+            {#if isConfigured}
+              <button type="button" class="danger" onclick={clearSettings}>
+                Clear
+              </button>
+            {/if}
+          </div>
+        </form>
+
+        <details class="help">
+          <summary>How to get your session token</summary>
+          <ol>
+            <li>Go to <a href="https://claude.ai" target="_blank">claude.ai</a> and log in</li>
+            <li>Open browser DevTools (F12)</li>
+            <li>Go to Application > Cookies > claude.ai</li>
+            <li>Find the "sessionKey" cookie and copy its value</li>
+          </ol>
+        </details>
+      {:else if settingsTab === "notifications"}
+        <div class="notification-settings-wrapper">
+          <NotificationSettingsComponent
+            settings={notificationSettings}
+            onchange={saveNotificationSettings}
+          />
+        </div>
+      {/if}
     </section>
   {:else}
     <section class="dashboard">
@@ -280,12 +366,15 @@ async function clearSettings() {
   .container {
     max-width: 100%;
     padding: 16px;
-    min-height: 100vh;
+    height: 100vh;
     box-sizing: border-box;
     background-color: #fafafa;
     border-radius: 12px;
     border: 1px solid #d0d0d0;
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   @media (prefers-color-scheme: dark) {
@@ -342,6 +431,54 @@ async function clearSettings() {
   .setup {
     max-width: 320px;
     margin: 0 auto;
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    background: #e5e5e5;
+    border-radius: 8px;
+    padding: 4px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .tabs {
+      background: #2a2a2a;
+    }
+  }
+
+  .tab {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: #666;
+    font-weight: 500;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .tab {
+      color: #999;
+    }
+  }
+
+  .tab.active {
+    background: #fff;
+    color: #1a1a1a;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .tab.active {
+      background: #3a3a3a;
+      color: #f0f0f0;
+    }
   }
 
   .hint {
@@ -451,10 +588,16 @@ async function clearSettings() {
     color: #7c3aed;
   }
 
+  .notification-settings-wrapper {
+    margin-top: 8px;
+  }
+
   .dashboard {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    flex: 1;
+    overflow-y: auto;
   }
 
   .refresh-row {
