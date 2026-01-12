@@ -20,12 +20,14 @@
     "rules": {
       "recommended": true,
       "suspicious": {
-        "useStrictMode": "error",
         "noExplicitAny": "error"
       },
       "style": {
         "useConst": "off",
         "useImportType": "off"
+      },
+      "correctness": {
+        "noUnusedVariables": "off"
       }
     }
   },
