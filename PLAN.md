@@ -191,7 +191,7 @@ Complete implementation plan for Claude Monitor.
 - [ ] Historical data storage
 
 #### Distribution
-- [ ] App icon design (all sizes)
+- [x] App icon design (all sizes)
 - [ ] macOS notarization
 - [ ] Windows code signing
 - [ ] Linux packages (AppImage, deb)
