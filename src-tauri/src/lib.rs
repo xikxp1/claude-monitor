@@ -5,6 +5,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, Runtime,
 };
+#[cfg(not(target_os = "macos"))]
 use tauri_plugin_positioner::{on_tray_event, Position, WindowExt};
 use thiserror::Error;
 
@@ -131,7 +132,7 @@ fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
 
     let menu = Menu::with_items(app, &[&show_i, &refresh_i, &quit_i])?;
 
-    let _tray = TrayIconBuilder::new()
+    let _tray = TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -154,23 +155,45 @@ fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
         })
         .on_tray_icon_event(|tray, event| {
             let app = tray.app_handle();
-            // Track tray position for positioner plugin
-            on_tray_event(app, &event);
 
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
+            #[cfg(target_os = "macos")]
             {
-                if let Some(window) = app.get_webview_window("main") {
-                    if window.is_visible().unwrap_or(false) {
-                        let _ = window.hide();
+                use tauri_plugin_nspopover::AppExt;
+                // Use NSPopover on macOS for proper fullscreen support
+                if let TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                } = event
+                {
+                    if app.is_popover_shown() {
+                        let _ = app.hide_popover();
                     } else {
-                        // Position window under tray icon
-                        let _ = window.move_window(Position::TrayCenter);
-                        let _ = window.show();
-                        let _ = window.set_focus();
+                        let _ = app.show_popover();
+                    }
+                }
+            }
+
+            #[cfg(not(target_os = "macos"))]
+            {
+                // Track tray position for positioner plugin on other platforms
+                on_tray_event(app, &event);
+
+                if let TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                } = event
+                {
+                    if let Some(window) = app.get_webview_window("main") {
+                        if window.is_visible().unwrap_or(false) {
+                            let _ = window.hide();
+                        } else {
+                            let _ = window.move_window(Position::TrayCenter);
+                            let _ = window.set_always_on_top(true);
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
                     }
                 }
             }
@@ -190,12 +213,33 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_positioner::init())
+        .plugin(tauri_plugin_nspopover::init())
         .invoke_handler(tauri::generate_handler![get_usage, get_default_settings])
         .setup(|app| {
+            // Create tray first (required by NSPopover plugin which looks up tray by ID "main")
             create_tray(app.handle())?;
+
+            // Set activation policy to Accessory on macOS for proper tray app behavior
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::ActivationPolicy;
+                use tauri_plugin_nspopover::{WindowExt, ToPopoverOptions};
+
+                app.set_activation_policy(ActivationPolicy::Accessory);
+
+                // Convert window to popover
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.to_popover(ToPopoverOptions {
+                        is_fullsize_content: true,
+                    });
+                }
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
+            // On non-macOS platforms, handle window events manually
+            #[cfg(not(target_os = "macos"))]
             match event {
                 // Hide window when it loses focus
                 tauri::WindowEvent::Focused(false) => {
@@ -207,6 +251,13 @@ pub fn run() {
                     api.prevent_close();
                 }
                 _ => {}
+            }
+
+            // On macOS, NSPopover handles focus loss automatically
+            #[cfg(target_os = "macos")]
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.hide();
+                api.prevent_close();
             }
         })
         .run(tauri::generate_context!())
