@@ -135,6 +135,24 @@ Complete implementation plan for Claude Monitor.
 - [x] Comma-separated input for custom thresholds
 - [x] Real-time save on change
 
+### Phase 5: Auto-Refresh
+
+#### 5.1 Auto-Refresh Timer
+- [x] Implement background timer in frontend (setInterval)
+- [x] Use configured refresh interval from settings (default: 5 minutes)
+- [x] Restart timer after each successful fetch
+- [x] Display last update time ("Updated: Just now", "1 min ago", etc.)
+- [x] Display countdown to next update ("Next: 4m 32s")
+- [x] Clean up timers on component unmount
+
+#### 5.2 Auto-Refresh Settings
+- [x] Add "General" tab to settings page
+- [x] Enable/disable auto-refresh toggle
+- [x] Refresh interval dropdown (1, 2, 5, 10, 15, 30 minutes)
+- [x] Persist settings to store
+- [x] Show "Auto-refresh off" when disabled
+- [x] Immediately apply settings changes
+
 ---
 
 ## Next Steps (Prioritized)
@@ -151,12 +169,6 @@ Complete implementation plan for Claude Monitor.
 - [ ] Show usage percentage in tray tooltip
 - [ ] Add "Open Settings" menu item
 
-#### Auto-Refresh
-- [ ] Implement background timer in frontend (setInterval)
-- [ ] Use configured refresh interval from settings
-- [ ] Emit `refresh-usage` event from timer
-- [ ] Pause when popover/window hidden (optional)
-
 ### Short Term (Medium Priority)
 
 #### Custom Tray Icons
@@ -168,7 +180,7 @@ Complete implementation plan for Claude Monitor.
 - [ ] Update tray icon based on usage level
 
 #### Settings Page Enhancements
-- [ ] Refresh interval slider/dropdown
+- [x] Refresh interval slider/dropdown (moved to Phase 5.2)
 - [ ] Clear credentials button with confirmation
 
 #### Secure Token Storage

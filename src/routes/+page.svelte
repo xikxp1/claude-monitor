@@ -24,12 +24,13 @@ let settings: Settings = $state({
   organization_id: null,
   session_token: null,
   refresh_interval_minutes: 5,
+  auto_refresh_enabled: true,
 });
 let usageData: UsageData | null = $state(null);
 let loading = $state(false);
 let error: string | null = $state(null);
 let showSettings = $state(false);
-let settingsTab: "credentials" | "notifications" = $state("credentials");
+let settingsTab: "credentials" | "notifications" | "general" = $state("credentials");
 
 // Notification state
 let notificationSettings: NotificationSettings = $state(getDefaultNotificationSettings());
@@ -38,6 +39,12 @@ let notificationState: NotificationState = $state(getDefaultNotificationState())
 // Form inputs
 let orgIdInput = $state("");
 let tokenInput = $state("");
+
+// Auto-refresh state
+let lastUpdateTime: Date | null = $state(null);
+let secondsUntilNextUpdate = $state(0);
+let autoRefreshInterval: ReturnType<typeof setInterval> | null = null;
+let countdownInterval: ReturnType<typeof setInterval> | null = null;
 
 const isConfigured = $derived(settings.organization_id !== null && settings.session_token !== null);
 
@@ -72,6 +79,61 @@ function formatResetTime(resets_at: string): string {
   }
 }
 
+function formatLastUpdate(date: Date | null): string {
+  if (!date) return "Never";
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+
+  if (diffSecs < 60) return "Just now";
+  if (diffMins === 1) return "1 min ago";
+  return `${diffMins} min ago`;
+}
+
+function formatCountdown(seconds: number): string {
+  if (seconds <= 0) return "now";
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (mins > 0) {
+    return `${mins}m ${secs}s`;
+  }
+  return `${secs}s`;
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+
+  if (!settings.auto_refresh_enabled) {
+    secondsUntilNextUpdate = 0;
+    return;
+  }
+
+  const intervalMs = settings.refresh_interval_minutes * 60 * 1000;
+  secondsUntilNextUpdate = settings.refresh_interval_minutes * 60;
+
+  // Countdown timer (every second)
+  countdownInterval = setInterval(() => {
+    secondsUntilNextUpdate = Math.max(0, secondsUntilNextUpdate - 1);
+  }, 1000);
+
+  // Auto-refresh timer
+  autoRefreshInterval = setInterval(() => {
+    fetchUsage();
+  }, intervalMs);
+}
+
+function stopAutoRefresh() {
+  if (autoRefreshInterval) {
+    clearInterval(autoRefreshInterval);
+    autoRefreshInterval = null;
+  }
+  if (countdownInterval) {
+    clearInterval(countdownInterval);
+    countdownInterval = null;
+  }
+}
+
 onMount(() => {
   initApp();
 
@@ -79,19 +141,22 @@ onMount(() => {
     if (unlistenFn) {
       unlistenFn();
     }
+    stopAutoRefresh();
   };
 });
 
 async function initApp() {
-  // Load credentials
+  // Load credentials and general settings
   const savedOrgId = await store.get<string>("organization_id");
   const savedToken = await store.get<string>("session_token");
   const savedInterval = await store.get<number>("refresh_interval_minutes");
+  const savedAutoRefresh = await store.get<boolean>("auto_refresh_enabled");
 
   settings = {
     organization_id: savedOrgId ?? null,
     session_token: savedToken ?? null,
     refresh_interval_minutes: savedInterval ?? 5,
+    auto_refresh_enabled: savedAutoRefresh ?? true,
   };
 
   orgIdInput = settings.organization_id ?? "";
@@ -147,6 +212,24 @@ async function saveNotificationSettings(newSettings: NotificationSettings) {
   await store.set("notification_settings", newSettings);
 }
 
+async function saveGeneralSettings(autoRefreshEnabled: boolean, refreshIntervalMinutes: number) {
+  settings = {
+    ...settings,
+    auto_refresh_enabled: autoRefreshEnabled,
+    refresh_interval_minutes: refreshIntervalMinutes,
+  };
+  await store.set("auto_refresh_enabled", autoRefreshEnabled);
+  await store.set("refresh_interval_minutes", refreshIntervalMinutes);
+
+  // Restart or stop auto-refresh based on new settings
+  if (autoRefreshEnabled && isConfigured && usageData) {
+    startAutoRefresh();
+  } else {
+    stopAutoRefresh();
+    secondsUntilNextUpdate = 0;
+  }
+}
+
 async function fetchUsage() {
   if (!settings.organization_id || !settings.session_token) {
     return;
@@ -162,6 +245,7 @@ async function fetchUsage() {
     });
 
     usageData = newUsageData;
+    lastUpdateTime = new Date();
 
     // Check for usage resets and clear notification state if needed
     notificationState = resetNotificationStateIfNeeded(newUsageData, notificationState);
@@ -177,6 +261,9 @@ async function fetchUsage() {
       notificationState = newNotificationState;
       await store.set("notification_state", notificationState);
     }
+
+    // Restart auto-refresh timer
+    startAutoRefresh();
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
     usageData = null;
@@ -186,6 +273,7 @@ async function fetchUsage() {
 }
 
 async function clearSettings() {
+  stopAutoRefresh();
   await store.clear();
   settings = {
     organization_id: null,
@@ -195,6 +283,7 @@ async function clearSettings() {
   orgIdInput = "";
   tokenInput = "";
   usageData = null;
+  lastUpdateTime = null;
   notificationSettings = getDefaultNotificationSettings();
   notificationState = getDefaultNotificationState();
   showSettings = false;
@@ -253,6 +342,13 @@ async function clearSettings() {
           >
             Notifications
           </button>
+          <button
+            class="tab"
+            class:active={settingsTab === "general"}
+            onclick={() => (settingsTab = "general")}
+          >
+            General
+          </button>
         </div>
       {/if}
 
@@ -310,11 +406,47 @@ async function clearSettings() {
             onchange={saveNotificationSettings}
           />
         </div>
+      {:else if settingsTab === "general"}
+        <div class="general-settings">
+          <label class="toggle-row">
+            <input
+              type="checkbox"
+              checked={settings.auto_refresh_enabled}
+              onchange={(e) => saveGeneralSettings(e.currentTarget.checked, settings.refresh_interval_minutes)}
+            />
+            <span>Enable auto-refresh</span>
+          </label>
+
+          {#if settings.auto_refresh_enabled}
+            <label class="select-row">
+              <span>Refresh interval</span>
+              <select
+                value={settings.refresh_interval_minutes}
+                onchange={(e) => saveGeneralSettings(settings.auto_refresh_enabled, Number.parseInt(e.currentTarget.value, 10))}
+              >
+                <option value={1}>1 minute</option>
+                <option value={2}>2 minutes</option>
+                <option value={5}>5 minutes</option>
+                <option value={10}>10 minutes</option>
+                <option value={15}>15 minutes</option>
+                <option value={30}>30 minutes</option>
+              </select>
+            </label>
+          {/if}
+        </div>
       {/if}
     </section>
   {:else}
     <section class="dashboard">
       <div class="refresh-row">
+        <div class="update-info">
+          <span class="last-update">Updated: {formatLastUpdate(lastUpdateTime)}</span>
+          {#if settings.auto_refresh_enabled}
+            <span class="next-update">Next: {formatCountdown(secondsUntilNextUpdate)}</span>
+          {:else}
+            <span class="next-update disabled">Auto-refresh off</span>
+          {/if}
+        </div>
         <button class="refresh-btn" onclick={fetchUsage} disabled={loading}>
           {loading ? "Loading..." : "Refresh"}
         </button>
@@ -641,6 +773,60 @@ async function clearSettings() {
     margin-top: 8px;
   }
 
+  .general-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 8px;
+  }
+
+  label.toggle-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 500;
+  }
+
+  label.toggle-row input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    accent-color: #7c3aed;
+  }
+
+  label.select-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.9rem;
+  }
+
+  .select-row select {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    background: #fff;
+    cursor: pointer;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .select-row select {
+      background: #2a2a2a;
+      border-color: #444;
+      color: #f0f0f0;
+    }
+  }
+
+  .next-update.disabled {
+    font-style: italic;
+    opacity: 0.7;
+  }
+
   .dashboard {
     display: flex;
     flex-direction: column;
@@ -651,7 +837,21 @@ async function clearSettings() {
 
   .refresh-row {
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .update-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 0.75rem;
+    color: #888;
+  }
+
+  .last-update,
+  .next-update {
+    white-space: nowrap;
   }
 
   .refresh-btn {

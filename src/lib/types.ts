@@ -14,6 +14,7 @@ export interface Settings {
   organization_id: string | null;
   session_token: string | null;
   refresh_interval_minutes: number;
+  auto_refresh_enabled: boolean;
 }
 
 // Notification types
