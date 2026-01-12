@@ -225,9 +225,9 @@ async function clearSettings() {
 
 <main class="container">
   <header>
-    <h1>Claude Monitor</h1>
+    <h1><span class="claude">Claude</span> <span class="monitor">Monitor</span></h1>
     {#if isConfigured}
-      <button class="icon-btn" onclick={() => (showSettings = !showSettings)}>
+      <button class="header-btn" onclick={() => (showSettings = !showSettings)}>
         {showSettings ? "Dashboard" : "Settings"}
       </button>
     {/if}
@@ -389,8 +389,8 @@ async function clearSettings() {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
-    padding-bottom: 12px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
     border-bottom: 1px solid #e0e0e0;
   }
 
@@ -402,8 +402,30 @@ async function clearSettings() {
 
   h1 {
     margin: 0;
-    font-size: 1.3rem;
+    margin-left: 4px;
+    margin-right: 12px;
+    font-size: 1.4rem;
     font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  h1 .claude {
+    color: #1e3a5f;
+  }
+
+  h1 .monitor {
+    color: #8899a6;
+    font-weight: 400;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    h1 .claude {
+      color: #5ba3d9;
+    }
+
+    h1 .monitor {
+      color: #8899a6;
+    }
   }
 
   h2 {
@@ -412,19 +434,35 @@ async function clearSettings() {
     font-weight: 600;
   }
 
-  .icon-btn {
-    padding: 6px 12px;
-    font-size: 0.85rem;
-    background: transparent;
-    border: 1px solid #ddd;
+  .header-btn {
+    padding: 6px 14px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    background: #f0f4f8;
+    border: 1px solid #d0d7de;
     border-radius: 6px;
     cursor: pointer;
+    color: #1e3a5f;
+    transition: all 0.15s ease;
+  }
+
+  .header-btn:hover {
+    background: #7c3aed;
+    border-color: #7c3aed;
+    color: #fff;
   }
 
   @media (prefers-color-scheme: dark) {
-    .icon-btn {
-      border-color: #444;
-      color: #f0f0f0;
+    .header-btn {
+      background: #2a3a4a;
+      border-color: #3a4a5a;
+      color: #c0d0e0;
+    }
+
+    .header-btn:hover {
+      background: #7c3aed;
+      border-color: #7c3aed;
+      color: #fff;
     }
   }
 
@@ -460,24 +498,35 @@ async function clearSettings() {
     cursor: pointer;
     color: #666;
     font-weight: 500;
+    transition: all 0.15s ease;
+  }
+
+  .tab:hover {
+    background: #7c3aed;
+    color: #fff;
   }
 
   @media (prefers-color-scheme: dark) {
     .tab {
       color: #999;
     }
+
+    .tab:hover {
+      background: #7c3aed;
+      color: #fff;
+    }
   }
 
   .tab.active {
-    background: #fff;
-    color: #1a1a1a;
+    background: #7c3aed;
+    color: #fff;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   }
 
   @media (prefers-color-scheme: dark) {
     .tab.active {
-      background: #3a3a3a;
-      color: #f0f0f0;
+      background: #7c3aed;
+      color: #fff;
     }
   }
 
@@ -612,10 +661,20 @@ async function clearSettings() {
     color: #333;
   }
 
+  .refresh-btn:hover:not(:disabled) {
+    background: #7c3aed;
+    color: #fff;
+  }
+
   @media (prefers-color-scheme: dark) {
     .refresh-btn {
       background: #3a3a3a;
       color: #f0f0f0;
+    }
+
+    .refresh-btn:hover:not(:disabled) {
+      background: #7c3aed;
+      color: #fff;
     }
   }
 
