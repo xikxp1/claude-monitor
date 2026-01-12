@@ -1,56 +1,72 @@
 <script lang="ts">
-import type { NotificationRule, NotificationSettings, UsageType } from "$lib/types";
-import { USAGE_TYPE_LABELS } from "$lib/types";
+  import type {
+    NotificationRule,
+    NotificationSettings,
+    UsageType,
+  } from "$lib/types";
+  import { USAGE_TYPE_LABELS } from "$lib/types";
 
-interface Props {
-  settings: NotificationSettings;
-  onchange: (settings: NotificationSettings) => void;
-}
-
-let { settings, onchange }: Props = $props();
-
-let openSection: UsageType | null = $state(null);
-
-function toggleSection(usageType: UsageType) {
-  openSection = openSection === usageType ? null : usageType;
-}
-
-function updateRule(usageType: UsageType, updates: Partial<NotificationRule>) {
-  const newSettings = {
-    ...settings,
-    [usageType]: { ...settings[usageType], ...updates },
-  };
-  onchange(newSettings);
-}
-
-function updateThresholds(usageType: UsageType, value: string) {
-  const thresholds = value
-    .split(",")
-    .map((s) => Number.parseInt(s.trim(), 10))
-    .filter((n) => !Number.isNaN(n) && n >= 0 && n <= 100)
-    .sort((a, b) => a - b);
-  updateRule(usageType, { thresholds });
-}
-
-function toggleEnabled() {
-  onchange({ ...settings, enabled: !settings.enabled });
-}
-
-function getRuleSummary(rule: NotificationRule): string {
-  const parts: string[] = [];
-  if (rule.interval_enabled) parts.push(`every ${rule.interval_percent}%`);
-  if (rule.threshold_enabled && rule.thresholds.length > 0) {
-    parts.push(`at ${rule.thresholds.join(", ")}%`);
+  interface Props {
+    settings: NotificationSettings;
+    onchange: (settings: NotificationSettings) => void;
   }
-  return parts.length > 0 ? parts.join(", ") : "off";
-}
 
-const usageTypes: UsageType[] = ["five_hour", "seven_day", "seven_day_sonnet", "seven_day_opus"];
+  let { settings, onchange }: Props = $props();
+
+  let openSection: UsageType | null = $state(null);
+
+  function toggleSection(usageType: UsageType) {
+    openSection = openSection === usageType ? null : usageType;
+  }
+
+  function updateRule(
+    usageType: UsageType,
+    updates: Partial<NotificationRule>,
+  ) {
+    const newSettings = {
+      ...settings,
+      [usageType]: { ...settings[usageType], ...updates },
+    };
+    onchange(newSettings);
+  }
+
+  function updateThresholds(usageType: UsageType, value: string) {
+    const thresholds = value
+      .split(",")
+      .map((s) => Number.parseInt(s.trim(), 10))
+      .filter((n) => !Number.isNaN(n) && n >= 0 && n <= 100)
+      .sort((a, b) => a - b);
+    updateRule(usageType, { thresholds });
+  }
+
+  function toggleEnabled() {
+    onchange({ ...settings, enabled: !settings.enabled });
+  }
+
+  function getRuleSummary(rule: NotificationRule): string {
+    const parts: string[] = [];
+    if (rule.interval_enabled) parts.push(`every ${rule.interval_percent}%`);
+    if (rule.threshold_enabled && rule.thresholds.length > 0) {
+      parts.push(`at ${rule.thresholds.join(", ")}%`);
+    }
+    return parts.length > 0 ? parts.join(", ") : "off";
+  }
+
+  const usageTypes: UsageType[] = [
+    "five_hour",
+    "seven_day",
+    "seven_day_sonnet",
+    "seven_day_opus",
+  ];
 </script>
 
 <div class="notification-settings">
   <label class="global-toggle">
-    <input type="checkbox" checked={settings.enabled} onchange={toggleEnabled} />
+    <input
+      type="checkbox"
+      checked={settings.enabled}
+      onchange={toggleEnabled}
+    />
     <span>Enable notifications</span>
   </label>
 
@@ -60,7 +76,11 @@ const usageTypes: UsageType[] = ["five_hour", "seven_day", "seven_day_sonnet", "
         {@const rule = settings[usageType]}
         {@const isOpen = openSection === usageType}
         <div class="rule-section" class:open={isOpen}>
-          <button type="button" class="rule-header" onclick={() => toggleSection(usageType)}>
+          <button
+            type="button"
+            class="rule-header"
+            onclick={() => toggleSection(usageType)}
+          >
             <span class="arrow">{isOpen ? "▼" : "▶"}</span>
             <span class="title">{USAGE_TYPE_LABELS[usageType]}</span>
             <span class="summary">{getRuleSummary(rule)}</span>
@@ -71,7 +91,10 @@ const usageTypes: UsageType[] = ["five_hour", "seven_day", "seven_day_sonnet", "
                 <input
                   type="checkbox"
                   checked={rule.interval_enabled}
-                  onchange={() => updateRule(usageType, { interval_enabled: !rule.interval_enabled })}
+                  onchange={() =>
+                    updateRule(usageType, {
+                      interval_enabled: !rule.interval_enabled,
+                    })}
                 />
                 <span>Every</span>
                 <select
@@ -79,7 +102,10 @@ const usageTypes: UsageType[] = ["five_hour", "seven_day", "seven_day_sonnet", "
                   disabled={!rule.interval_enabled}
                   onchange={(e) =>
                     updateRule(usageType, {
-                      interval_percent: Number.parseInt(e.currentTarget.value, 10),
+                      interval_percent: Number.parseInt(
+                        e.currentTarget.value,
+                        10,
+                      ),
                     })}
                 >
                   <option value={5}>5%</option>
@@ -94,7 +120,10 @@ const usageTypes: UsageType[] = ["five_hour", "seven_day", "seven_day_sonnet", "
                 <input
                   type="checkbox"
                   checked={rule.threshold_enabled}
-                  onchange={() => updateRule(usageType, { threshold_enabled: !rule.threshold_enabled })}
+                  onchange={() =>
+                    updateRule(usageType, {
+                      threshold_enabled: !rule.threshold_enabled,
+                    })}
                 />
                 <span>At thresholds:</span>
                 <input
@@ -102,7 +131,8 @@ const usageTypes: UsageType[] = ["five_hour", "seven_day", "seven_day_sonnet", "
                   value={rule.thresholds.join(", ")}
                   placeholder="80, 90"
                   disabled={!rule.threshold_enabled}
-                  onchange={(e) => updateThresholds(usageType, e.currentTarget.value)}
+                  onchange={(e) =>
+                    updateThresholds(usageType, e.currentTarget.value)}
                 />
               </label>
             </div>

@@ -1,382 +1,417 @@
 <script lang="ts">
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import {
-  disable as disableAutostart,
-  enable as enableAutostart,
-  isEnabled as isAutostartEnabled,
-} from "@tauri-apps/plugin-autostart";
-import { LazyStore } from "@tauri-apps/plugin-store";
-import { onMount } from "svelte";
-import UsageLineChart from "$lib/components/charts/UsageLineChart.svelte";
-import NotificationSettingsComponent from "$lib/components/NotificationSettings.svelte";
-import {
-  getUsageHistoryByRange,
-  initHistoryStorage,
-  saveUsageSnapshot,
-  type TimeRange,
-  type UsageHistoryRecord,
-} from "$lib/historyStorage";
-import { processNotifications, resetNotificationStateIfNeeded } from "$lib/notifications";
-import {
-  deleteCredentials,
-  getCredentials,
-  initSecureStorage,
-  resetSecureStorage,
-  saveCredentials,
-} from "$lib/secureStorage";
-import type { NotificationSettings, NotificationState, Settings, UsageData, UsagePeriod } from "$lib/types";
-import { getDefaultNotificationSettings, getDefaultNotificationState } from "$lib/types";
+  import { invoke } from "@tauri-apps/api/core";
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+  import {
+    disable as disableAutostart,
+    enable as enableAutostart,
+    isEnabled as isAutostartEnabled,
+  } from "@tauri-apps/plugin-autostart";
+  import { LazyStore } from "@tauri-apps/plugin-store";
+  import { onMount } from "svelte";
+  import UsageLineChart from "$lib/components/charts/UsageLineChart.svelte";
+  import NotificationSettingsComponent from "$lib/components/NotificationSettings.svelte";
+  import {
+    getUsageHistoryByRange,
+    initHistoryStorage,
+    saveUsageSnapshot,
+    type TimeRange,
+    type UsageHistoryRecord,
+  } from "$lib/historyStorage";
+  import {
+    processNotifications,
+    resetNotificationStateIfNeeded,
+  } from "$lib/notifications";
+  import {
+    deleteCredentials,
+    getCredentials,
+    initSecureStorage,
+    resetSecureStorage,
+    saveCredentials,
+  } from "$lib/secureStorage";
+  import type {
+    NotificationSettings,
+    NotificationState,
+    Settings,
+    UsageData,
+    UsagePeriod,
+  } from "$lib/types";
+  import {
+    getDefaultNotificationSettings,
+    getDefaultNotificationState,
+  } from "$lib/types";
 
-let settings: Settings = $state({
-  organization_id: null,
-  session_token: null,
-  refresh_interval_minutes: 5,
-  auto_refresh_enabled: true,
-});
-let usageData: UsageData | null = $state(null);
-let initializing = $state(true);
-let loading = $state(false);
-let error: string | null = $state(null);
-let showSettings = $state(false);
-let settingsTab: "credentials" | "notifications" | "general" = $state("credentials");
-
-// Notification state
-let notificationSettings: NotificationSettings = $state(getDefaultNotificationSettings());
-let notificationState: NotificationState = $state(getDefaultNotificationState());
-
-// Form inputs
-let orgIdInput = $state("");
-let tokenInput = $state("");
-
-// Auto-refresh state
-let lastUpdateTime: Date | null = $state(null);
-let secondsUntilNextUpdate = $state(0);
-let autoRefreshInterval: ReturnType<typeof setInterval> | null = null;
-let countdownInterval: ReturnType<typeof setInterval> | null = null;
-
-// Auto-start state
-let autostartEnabled = $state(false);
-
-// Analytics state
-let showAnalytics = $state(false);
-let analyticsTimeRange: TimeRange = $state("24h");
-let analyticsHistory: UsageHistoryRecord[] = $state([]);
-let analyticsLoading = $state(false);
-
-const isConfigured = $derived(settings.organization_id !== null && settings.session_token !== null);
-
-const store = new LazyStore("settings.json", { autoSave: true, defaults: {} });
-
-let unlistenFn: UnlistenFn | null = null;
-
-function getUsageColor(utilization: number): string {
-  if (utilization >= 90) return "red";
-  if (utilization >= 80) return "orange";
-  if (utilization >= 50) return "yellow";
-  return "green";
-}
-
-function formatResetTime(resets_at: string): string {
-  try {
-    const date = new Date(resets_at);
-    const now = new Date();
-    const diffMs = date.getTime() - now.getTime();
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-
-    if (diffHours > 24) {
-      const days = Math.floor(diffHours / 24);
-      return `${days}d ${diffHours % 24}h`;
-    }
-    if (diffHours > 0) {
-      return `${diffHours}h ${diffMins}m`;
-    }
-    return `${diffMins}m`;
-  } catch {
-    return "";
-  }
-}
-
-function formatLastUpdate(date: Date | null): string {
-  if (!date) return "Never";
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffSecs = Math.floor(diffMs / 1000);
-  const diffMins = Math.floor(diffSecs / 60);
-
-  if (diffSecs < 60) return "Just now";
-  if (diffMins === 1) return "1 min ago";
-  return `${diffMins} min ago`;
-}
-
-function formatCountdown(seconds: number): string {
-  if (seconds <= 0) return "now";
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  if (mins > 0) {
-    return `${mins}m ${secs}s`;
-  }
-  return `${secs}s`;
-}
-
-function startAutoRefresh() {
-  stopAutoRefresh();
-
-  if (!settings.auto_refresh_enabled) {
-    secondsUntilNextUpdate = 0;
-    return;
-  }
-
-  const intervalMs = settings.refresh_interval_minutes * 60 * 1000;
-  secondsUntilNextUpdate = settings.refresh_interval_minutes * 60;
-
-  // Countdown timer (every second)
-  countdownInterval = setInterval(() => {
-    secondsUntilNextUpdate = Math.max(0, secondsUntilNextUpdate - 1);
-  }, 1000);
-
-  // Auto-refresh timer
-  autoRefreshInterval = setInterval(() => {
-    fetchUsage();
-  }, intervalMs);
-}
-
-function stopAutoRefresh() {
-  if (autoRefreshInterval) {
-    clearInterval(autoRefreshInterval);
-    autoRefreshInterval = null;
-  }
-  if (countdownInterval) {
-    clearInterval(countdownInterval);
-    countdownInterval = null;
-  }
-}
-
-onMount(() => {
-  // Start secure storage initialization early (argon2 is slow)
-  initSecureStorage();
-  // Initialize history storage for analytics
-  initHistoryStorage();
-
-  initApp();
-
-  return () => {
-    if (unlistenFn) {
-      unlistenFn();
-    }
-    stopAutoRefresh();
-  };
-});
-
-async function initApp() {
-  // Load credentials from secure storage (Stronghold)
-  try {
-    const credentials = await getCredentials();
-    settings.organization_id = credentials.organizationId;
-    settings.session_token = credentials.sessionToken;
-    orgIdInput = credentials.organizationId ?? "";
-    tokenInput = credentials.sessionToken ?? "";
-  } catch (e) {
-    console.error("Failed to load credentials:", e);
-  } finally {
-    initializing = false;
-  }
-
-  // Load general settings from store
-  const savedInterval = await store.get<number>("refresh_interval_minutes");
-  const savedAutoRefresh = await store.get<boolean>("auto_refresh_enabled");
-
-  settings = {
-    ...settings,
-    refresh_interval_minutes: savedInterval ?? 5,
-    auto_refresh_enabled: savedAutoRefresh ?? true,
-  };
-
-  // Load notification settings
-  const savedNotificationSettings = await store.get<NotificationSettings>("notification_settings");
-  if (savedNotificationSettings) {
-    notificationSettings = savedNotificationSettings;
-  }
-
-  // Load notification state
-  const savedNotificationState = await store.get<NotificationState>("notification_state");
-  if (savedNotificationState) {
-    notificationState = savedNotificationState;
-  }
-
-  // Load autostart state
-  try {
-    autostartEnabled = await isAutostartEnabled();
-  } catch {
-    autostartEnabled = false;
-  }
-
-  if (settings.organization_id && settings.session_token) {
-    await fetchUsage();
-  }
-
-  unlistenFn = await listen("refresh-usage", () => {
-    fetchUsage();
-  });
-}
-
-async function saveSettings() {
-  loading = true;
-  error = null;
-
-  try {
-    // Save credentials to secure storage (Stronghold)
-    await saveCredentials(orgIdInput, tokenInput);
-
-    settings = {
-      ...settings,
-      organization_id: orgIdInput,
-      session_token: tokenInput,
-    };
-
-    showSettings = false;
-    await fetchUsage();
-  } catch (e) {
-    error = e instanceof Error ? e.message : "Failed to save settings";
-  } finally {
-    loading = false;
-  }
-}
-
-async function saveNotificationSettings(newSettings: NotificationSettings) {
-  notificationSettings = newSettings;
-  await store.set("notification_settings", newSettings);
-}
-
-async function saveGeneralSettings(autoRefreshEnabled: boolean, refreshIntervalMinutes: number) {
-  settings = {
-    ...settings,
-    auto_refresh_enabled: autoRefreshEnabled,
-    refresh_interval_minutes: refreshIntervalMinutes,
-  };
-  await store.set("auto_refresh_enabled", autoRefreshEnabled);
-  await store.set("refresh_interval_minutes", refreshIntervalMinutes);
-
-  // Restart or stop auto-refresh based on new settings
-  if (autoRefreshEnabled && isConfigured && usageData) {
-    startAutoRefresh();
-  } else {
-    stopAutoRefresh();
-    secondsUntilNextUpdate = 0;
-  }
-}
-
-async function toggleAutostart(enabled: boolean) {
-  try {
-    if (enabled) {
-      await enableAutostart();
-    } else {
-      await disableAutostart();
-    }
-    autostartEnabled = enabled;
-  } catch (e) {
-    console.error("Failed to toggle autostart:", e);
-  }
-}
-
-async function fetchUsage() {
-  if (!settings.organization_id || !settings.session_token) {
-    return;
-  }
-
-  loading = true;
-  error = null;
-
-  try {
-    const newUsageData = await invoke<UsageData>("get_usage", {
-      orgId: settings.organization_id,
-      sessionToken: settings.session_token,
-    });
-
-    usageData = newUsageData;
-    lastUpdateTime = new Date();
-
-    // Update tray tooltip with usage data
-    await invoke("update_tray_tooltip", { usage: newUsageData });
-
-    // Save usage snapshot for analytics
-    try {
-      await saveUsageSnapshot(newUsageData);
-    } catch (e) {
-      console.error("Failed to save usage snapshot:", e);
-    }
-
-    // Check for usage resets and clear notification state if needed
-    notificationState = resetNotificationStateIfNeeded(newUsageData, notificationState);
-
-    // Process notifications
-    const newNotificationState = await processNotifications(newUsageData, notificationSettings, notificationState);
-
-    if (newNotificationState !== notificationState) {
-      notificationState = newNotificationState;
-      await store.set("notification_state", notificationState);
-    }
-
-    // Restart auto-refresh timer
-    startAutoRefresh();
-  } catch (e) {
-    error = e instanceof Error ? e.message : String(e);
-    usageData = null;
-  } finally {
-    loading = false;
-  }
-}
-
-async function loadAnalytics() {
-  analyticsLoading = true;
-  try {
-    analyticsHistory = await getUsageHistoryByRange(analyticsTimeRange);
-  } catch (e) {
-    console.error("Failed to load analytics:", e);
-  } finally {
-    analyticsLoading = false;
-  }
-}
-
-async function changeTimeRange(range: TimeRange) {
-  analyticsTimeRange = range;
-  await loadAnalytics();
-}
-
-async function openAnalytics() {
-  showAnalytics = true;
-  showSettings = false;
-  await loadAnalytics();
-}
-
-async function clearSettings() {
-  stopAutoRefresh();
-
-  // Delete credentials from secure storage
-  await deleteCredentials();
-  resetSecureStorage();
-
-  // Clear other settings from store
-  await store.clear();
-
-  settings = {
+  let settings: Settings = $state({
     organization_id: null,
     session_token: null,
     refresh_interval_minutes: 5,
     auto_refresh_enabled: true,
-  };
-  orgIdInput = "";
-  tokenInput = "";
-  usageData = null;
-  lastUpdateTime = null;
-  notificationSettings = getDefaultNotificationSettings();
-  notificationState = getDefaultNotificationState();
-  showSettings = false;
+  });
+  let usageData: UsageData | null = $state(null);
+  let initializing = $state(true);
+  let loading = $state(false);
+  let error: string | null = $state(null);
+  let showSettings = $state(false);
+  let settingsTab: "credentials" | "notifications" | "general" =
+    $state("credentials");
 
-  // Reset tray tooltip
-  await invoke("update_tray_tooltip", { usage: null });
-}
+  // Notification state
+  let notificationSettings: NotificationSettings = $state(
+    getDefaultNotificationSettings(),
+  );
+  let notificationState: NotificationState = $state(
+    getDefaultNotificationState(),
+  );
+
+  // Form inputs
+  let orgIdInput = $state("");
+  let tokenInput = $state("");
+
+  // Auto-refresh state
+  let lastUpdateTime: Date | null = $state(null);
+  let secondsUntilNextUpdate = $state(0);
+  let autoRefreshInterval: ReturnType<typeof setInterval> | null = null;
+  let countdownInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Auto-start state
+  let autostartEnabled = $state(false);
+
+  // Analytics state
+  let showAnalytics = $state(false);
+  let analyticsTimeRange: TimeRange = $state("24h");
+  let analyticsHistory: UsageHistoryRecord[] = $state([]);
+  let analyticsLoading = $state(false);
+
+  const isConfigured = $derived(
+    settings.organization_id !== null && settings.session_token !== null,
+  );
+
+  const store = new LazyStore("settings.json", {
+    autoSave: true,
+    defaults: {},
+  });
+
+  let unlistenFn: UnlistenFn | null = null;
+
+  function getUsageColor(utilization: number): string {
+    if (utilization >= 90) return "red";
+    if (utilization >= 80) return "orange";
+    if (utilization >= 50) return "yellow";
+    return "green";
+  }
+
+  function formatResetTime(resets_at: string): string {
+    try {
+      const date = new Date(resets_at);
+      const now = new Date();
+      const diffMs = date.getTime() - now.getTime();
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+
+      if (diffHours > 24) {
+        const days = Math.floor(diffHours / 24);
+        return `${days}d ${diffHours % 24}h`;
+      }
+      if (diffHours > 0) {
+        return `${diffHours}h ${diffMins}m`;
+      }
+      return `${diffMins}m`;
+    } catch {
+      return "";
+    }
+  }
+
+  function formatLastUpdate(date: Date | null): string {
+    if (!date) return "Never";
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+
+    if (diffSecs < 60) return "Just now";
+    if (diffMins === 1) return "1 min ago";
+    return `${diffMins} min ago`;
+  }
+
+  function formatCountdown(seconds: number): string {
+    if (seconds <= 0) return "now";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (mins > 0) {
+      return `${mins}m ${secs}s`;
+    }
+    return `${secs}s`;
+  }
+
+  function startAutoRefresh() {
+    stopAutoRefresh();
+
+    if (!settings.auto_refresh_enabled) {
+      secondsUntilNextUpdate = 0;
+      return;
+    }
+
+    const intervalMs = settings.refresh_interval_minutes * 60 * 1000;
+    secondsUntilNextUpdate = settings.refresh_interval_minutes * 60;
+
+    // Countdown timer (every second)
+    countdownInterval = setInterval(() => {
+      secondsUntilNextUpdate = Math.max(0, secondsUntilNextUpdate - 1);
+    }, 1000);
+
+    // Auto-refresh timer
+    autoRefreshInterval = setInterval(() => {
+      fetchUsage();
+    }, intervalMs);
+  }
+
+  function stopAutoRefresh() {
+    if (autoRefreshInterval) {
+      clearInterval(autoRefreshInterval);
+      autoRefreshInterval = null;
+    }
+    if (countdownInterval) {
+      clearInterval(countdownInterval);
+      countdownInterval = null;
+    }
+  }
+
+  onMount(() => {
+    // Start secure storage initialization early (argon2 is slow)
+    initSecureStorage();
+    // Initialize history storage for analytics
+    initHistoryStorage();
+
+    initApp();
+
+    return () => {
+      if (unlistenFn) {
+        unlistenFn();
+      }
+      stopAutoRefresh();
+    };
+  });
+
+  async function initApp() {
+    // Load credentials from secure storage (Stronghold)
+    try {
+      const credentials = await getCredentials();
+      settings.organization_id = credentials.organizationId;
+      settings.session_token = credentials.sessionToken;
+      orgIdInput = credentials.organizationId ?? "";
+      tokenInput = credentials.sessionToken ?? "";
+    } catch (e) {
+      console.error("Failed to load credentials:", e);
+    } finally {
+      initializing = false;
+    }
+
+    // Load general settings from store
+    const savedInterval = await store.get<number>("refresh_interval_minutes");
+    const savedAutoRefresh = await store.get<boolean>("auto_refresh_enabled");
+
+    settings = {
+      ...settings,
+      refresh_interval_minutes: savedInterval ?? 5,
+      auto_refresh_enabled: savedAutoRefresh ?? true,
+    };
+
+    // Load notification settings
+    const savedNotificationSettings = await store.get<NotificationSettings>(
+      "notification_settings",
+    );
+    if (savedNotificationSettings) {
+      notificationSettings = savedNotificationSettings;
+    }
+
+    // Load notification state
+    const savedNotificationState =
+      await store.get<NotificationState>("notification_state");
+    if (savedNotificationState) {
+      notificationState = savedNotificationState;
+    }
+
+    // Load autostart state
+    try {
+      autostartEnabled = await isAutostartEnabled();
+    } catch {
+      autostartEnabled = false;
+    }
+
+    if (settings.organization_id && settings.session_token) {
+      await fetchUsage();
+    }
+
+    unlistenFn = await listen("refresh-usage", () => {
+      fetchUsage();
+    });
+  }
+
+  async function saveSettings() {
+    loading = true;
+    error = null;
+
+    try {
+      // Save credentials to secure storage (Stronghold)
+      await saveCredentials(orgIdInput, tokenInput);
+
+      settings = {
+        ...settings,
+        organization_id: orgIdInput,
+        session_token: tokenInput,
+      };
+
+      showSettings = false;
+      await fetchUsage();
+    } catch (e) {
+      error = e instanceof Error ? e.message : "Failed to save settings";
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function saveNotificationSettings(newSettings: NotificationSettings) {
+    notificationSettings = newSettings;
+    await store.set("notification_settings", newSettings);
+  }
+
+  async function saveGeneralSettings(
+    autoRefreshEnabled: boolean,
+    refreshIntervalMinutes: number,
+  ) {
+    settings = {
+      ...settings,
+      auto_refresh_enabled: autoRefreshEnabled,
+      refresh_interval_minutes: refreshIntervalMinutes,
+    };
+    await store.set("auto_refresh_enabled", autoRefreshEnabled);
+    await store.set("refresh_interval_minutes", refreshIntervalMinutes);
+
+    // Restart or stop auto-refresh based on new settings
+    if (autoRefreshEnabled && isConfigured && usageData) {
+      startAutoRefresh();
+    } else {
+      stopAutoRefresh();
+      secondsUntilNextUpdate = 0;
+    }
+  }
+
+  async function toggleAutostart(enabled: boolean) {
+    try {
+      if (enabled) {
+        await enableAutostart();
+      } else {
+        await disableAutostart();
+      }
+      autostartEnabled = enabled;
+    } catch (e) {
+      console.error("Failed to toggle autostart:", e);
+    }
+  }
+
+  async function fetchUsage() {
+    if (!settings.organization_id || !settings.session_token) {
+      return;
+    }
+
+    loading = true;
+    error = null;
+
+    try {
+      const newUsageData = await invoke<UsageData>("get_usage", {
+        orgId: settings.organization_id,
+        sessionToken: settings.session_token,
+      });
+
+      usageData = newUsageData;
+      lastUpdateTime = new Date();
+
+      // Update tray tooltip with usage data
+      await invoke("update_tray_tooltip", { usage: newUsageData });
+
+      // Save usage snapshot for analytics
+      try {
+        await saveUsageSnapshot(newUsageData);
+      } catch (e) {
+        console.error("Failed to save usage snapshot:", e);
+      }
+
+      // Check for usage resets and clear notification state if needed
+      notificationState = resetNotificationStateIfNeeded(
+        newUsageData,
+        notificationState,
+      );
+
+      // Process notifications
+      const newNotificationState = await processNotifications(
+        newUsageData,
+        notificationSettings,
+        notificationState,
+      );
+
+      if (newNotificationState !== notificationState) {
+        notificationState = newNotificationState;
+        await store.set("notification_state", notificationState);
+      }
+
+      // Restart auto-refresh timer
+      startAutoRefresh();
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+      usageData = null;
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function loadAnalytics() {
+    analyticsLoading = true;
+    try {
+      analyticsHistory = await getUsageHistoryByRange(analyticsTimeRange);
+    } catch (e) {
+      console.error("Failed to load analytics:", e);
+    } finally {
+      analyticsLoading = false;
+    }
+  }
+
+  async function changeTimeRange(range: TimeRange) {
+    analyticsTimeRange = range;
+    await loadAnalytics();
+  }
+
+  async function openAnalytics() {
+    showAnalytics = true;
+    showSettings = false;
+    await loadAnalytics();
+  }
+
+  async function clearSettings() {
+    stopAutoRefresh();
+
+    // Delete credentials from secure storage
+    await deleteCredentials();
+    resetSecureStorage();
+
+    // Clear other settings from store
+    await store.clear();
+
+    settings = {
+      organization_id: null,
+      session_token: null,
+      refresh_interval_minutes: 5,
+      auto_refresh_enabled: true,
+    };
+    orgIdInput = "";
+    tokenInput = "";
+    usageData = null;
+    lastUpdateTime = null;
+    notificationSettings = getDefaultNotificationSettings();
+    notificationState = getDefaultNotificationState();
+    showSettings = false;
+
+    // Reset tray tooltip
+    await invoke("update_tray_tooltip", { usage: null });
+  }
 </script>
 
 {#snippet usageCard(title: string, period: UsagePeriod | null)}
@@ -385,7 +420,9 @@ async function clearSettings() {
     <div class="usage-card">
       <div class="card-header">
         <span class="card-title">{title}</span>
-        <span class="reset-time">Resets in {formatResetTime(period.resets_at)}</span>
+        <span class="reset-time"
+          >Resets in {formatResetTime(period.resets_at)}</span
+        >
       </div>
       <div class="usage-bar-container">
         <div
@@ -410,20 +447,31 @@ async function clearSettings() {
     </div>
   {:else}
     <header>
-      <h1><span class="claude">Claude</span> <span class="monitor">Monitor</span></h1>
+      <h1>
+        <span class="claude">Claude</span> <span class="monitor">Monitor</span>
+      </h1>
       {#if isConfigured}
         <div class="header-buttons">
           <button
             class="header-btn"
             class:active={showAnalytics}
-            onclick={() => { if (showAnalytics) { showAnalytics = false; } else { openAnalytics(); } }}
+            onclick={() => {
+              if (showAnalytics) {
+                showAnalytics = false;
+              } else {
+                openAnalytics();
+              }
+            }}
           >
             {showAnalytics ? "Dashboard" : "Analytics"}
           </button>
           <button
             class="header-btn"
             class:active={showSettings}
-            onclick={() => { showSettings = !showSettings; showAnalytics = false; }}
+            onclick={() => {
+              showSettings = !showSettings;
+              showAnalytics = false;
+            }}
           >
             {showSettings ? "Dashboard" : "Settings"}
           </button>
@@ -432,179 +480,219 @@ async function clearSettings() {
     </header>
 
     {#if !isConfigured || showSettings}
-    <section class="setup">
-      <h2>{isConfigured ? "Settings" : "Setup"}</h2>
+      <section class="setup">
+        <h2>{isConfigured ? "Settings" : "Setup"}</h2>
 
-      {#if isConfigured}
-        <div class="tabs">
-          <button
-            class="tab"
-            class:active={settingsTab === "credentials"}
-            onclick={() => (settingsTab = "credentials")}
-          >
-            Credentials
-          </button>
-          <button
-            class="tab"
-            class:active={settingsTab === "notifications"}
-            onclick={() => (settingsTab = "notifications")}
-          >
-            Notifications
-          </button>
-          <button
-            class="tab"
-            class:active={settingsTab === "general"}
-            onclick={() => (settingsTab = "general")}
-          >
-            General
-          </button>
-        </div>
-      {/if}
-
-      {#if settingsTab === "credentials" || !isConfigured}
-        <p class="hint">
-          Enter your Claude organization ID and session token to view usage.
-        </p>
-
-        <form onsubmit={(e) => { e.preventDefault(); saveSettings(); }}>
-          <label>
-            Organization ID
-            <input
-              type="text"
-              bind:value={orgIdInput}
-              placeholder="uuid-format-org-id"
-              required
-            />
-          </label>
-
-          <label>
-            Session Token
-            <input
-              type="password"
-              bind:value={tokenInput}
-              placeholder="Your session token"
-              required
-            />
-          </label>
-
-          <div class="actions">
-            <button type="submit" disabled={loading}>
-              {loading ? "Saving..." : "Save"}
+        {#if isConfigured}
+          <div class="tabs">
+            <button
+              class="tab"
+              class:active={settingsTab === "credentials"}
+              onclick={() => (settingsTab = "credentials")}
+            >
+              Credentials
             </button>
-            {#if isConfigured}
-              <button type="button" class="danger" onclick={clearSettings}>
-                Clear
+            <button
+              class="tab"
+              class:active={settingsTab === "notifications"}
+              onclick={() => (settingsTab = "notifications")}
+            >
+              Notifications
+            </button>
+            <button
+              class="tab"
+              class:active={settingsTab === "general"}
+              onclick={() => (settingsTab = "general")}
+            >
+              General
+            </button>
+          </div>
+        {/if}
+
+        {#if settingsTab === "credentials" || !isConfigured}
+          <p class="hint">
+            Enter your Claude organization ID and session token to view usage.
+          </p>
+
+          <form
+            onsubmit={(e) => {
+              e.preventDefault();
+              saveSettings();
+            }}
+          >
+            <label>
+              Organization ID
+              <input
+                type="text"
+                bind:value={orgIdInput}
+                placeholder="uuid-format-org-id"
+                required
+              />
+            </label>
+
+            <label>
+              Session Token
+              <input
+                type="password"
+                bind:value={tokenInput}
+                placeholder="Your session token"
+                required
+              />
+            </label>
+
+            <div class="actions">
+              <button type="submit" disabled={loading}>
+                {loading ? "Saving..." : "Save"}
               </button>
+              {#if isConfigured}
+                <button type="button" class="danger" onclick={clearSettings}>
+                  Clear
+                </button>
+              {/if}
+            </div>
+          </form>
+
+          <details class="help">
+            <summary>How to get your session token</summary>
+            <ol>
+              <li>
+                Go to <a href="https://claude.ai" target="_blank">claude.ai</a> and
+                log in
+              </li>
+              <li>Open browser DevTools (F12)</li>
+              <li>Go to Application > Cookies > claude.ai</li>
+              <li>Find the "sessionKey" cookie and copy its value</li>
+            </ol>
+          </details>
+        {:else if settingsTab === "notifications"}
+          <div class="notification-settings-wrapper">
+            <NotificationSettingsComponent
+              settings={notificationSettings}
+              onchange={saveNotificationSettings}
+            />
+          </div>
+        {:else if settingsTab === "general"}
+          <div class="general-settings">
+            <label class="toggle-row">
+              <input
+                type="checkbox"
+                checked={settings.auto_refresh_enabled}
+                onchange={(e) =>
+                  saveGeneralSettings(
+                    e.currentTarget.checked,
+                    settings.refresh_interval_minutes,
+                  )}
+              />
+              <span>Enable auto-refresh</span>
+            </label>
+
+            {#if settings.auto_refresh_enabled}
+              <label class="select-row">
+                <span>Refresh interval</span>
+                <select
+                  value={settings.refresh_interval_minutes}
+                  onchange={(e) =>
+                    saveGeneralSettings(
+                      settings.auto_refresh_enabled,
+                      Number.parseInt(e.currentTarget.value, 10),
+                    )}
+                >
+                  <option value={1}>1 minute</option>
+                  <option value={2}>2 minutes</option>
+                  <option value={5}>5 minutes</option>
+                  <option value={10}>10 minutes</option>
+                  <option value={15}>15 minutes</option>
+                  <option value={30}>30 minutes</option>
+                </select>
+              </label>
+            {/if}
+
+            <label class="toggle-row">
+              <input
+                type="checkbox"
+                checked={autostartEnabled}
+                onchange={(e) => toggleAutostart(e.currentTarget.checked)}
+              />
+              <span>Start at login</span>
+            </label>
+          </div>
+        {/if}
+      </section>
+    {:else if showAnalytics}
+      <section class="analytics">
+        <h2>Usage Analytics</h2>
+
+        <div class="time-range-selector">
+          <button
+            class="range-btn"
+            class:active={analyticsTimeRange === "1h"}
+            onclick={() => changeTimeRange("1h")}>1h</button
+          >
+          <button
+            class="range-btn"
+            class:active={analyticsTimeRange === "6h"}
+            onclick={() => changeTimeRange("6h")}>6h</button
+          >
+          <button
+            class="range-btn"
+            class:active={analyticsTimeRange === "24h"}
+            onclick={() => changeTimeRange("24h")}>24h</button
+          >
+          <button
+            class="range-btn"
+            class:active={analyticsTimeRange === "7d"}
+            onclick={() => changeTimeRange("7d")}>7d</button
+          >
+          <button
+            class="range-btn"
+            class:active={analyticsTimeRange === "30d"}
+            onclick={() => changeTimeRange("30d")}>30d</button
+          >
+        </div>
+
+        <div class="chart-section">
+          <UsageLineChart data={analyticsHistory} height={220} />
+        </div>
+      </section>
+    {:else}
+      <section class="dashboard">
+        <div class="refresh-row">
+          <div class="update-info">
+            <span class="last-update"
+              >Updated: {formatLastUpdate(lastUpdateTime)}</span
+            >
+            {#if settings.auto_refresh_enabled}
+              <span class="next-update"
+                >Next: {formatCountdown(secondsUntilNextUpdate)}</span
+              >
+            {:else}
+              <span class="next-update disabled">Auto-refresh off</span>
             {/if}
           </div>
-        </form>
-
-        <details class="help">
-          <summary>How to get your session token</summary>
-          <ol>
-            <li>Go to <a href="https://claude.ai" target="_blank">claude.ai</a> and log in</li>
-            <li>Open browser DevTools (F12)</li>
-            <li>Go to Application > Cookies > claude.ai</li>
-            <li>Find the "sessionKey" cookie and copy its value</li>
-          </ol>
-        </details>
-      {:else if settingsTab === "notifications"}
-        <div class="notification-settings-wrapper">
-          <NotificationSettingsComponent
-            settings={notificationSettings}
-            onchange={saveNotificationSettings}
-          />
+          <button class="refresh-btn" onclick={fetchUsage} disabled={loading}>
+            {loading ? "Loading..." : "Refresh"}
+          </button>
         </div>
-      {:else if settingsTab === "general"}
-        <div class="general-settings">
-          <label class="toggle-row">
-            <input
-              type="checkbox"
-              checked={settings.auto_refresh_enabled}
-              onchange={(e) => saveGeneralSettings(e.currentTarget.checked, settings.refresh_interval_minutes)}
-            />
-            <span>Enable auto-refresh</span>
-          </label>
 
-          {#if settings.auto_refresh_enabled}
-            <label class="select-row">
-              <span>Refresh interval</span>
-              <select
-                value={settings.refresh_interval_minutes}
-                onchange={(e) => saveGeneralSettings(settings.auto_refresh_enabled, Number.parseInt(e.currentTarget.value, 10))}
-              >
-                <option value={1}>1 minute</option>
-                <option value={2}>2 minutes</option>
-                <option value={5}>5 minutes</option>
-                <option value={10}>10 minutes</option>
-                <option value={15}>15 minutes</option>
-                <option value={30}>30 minutes</option>
-              </select>
-            </label>
-          {/if}
-
-          <label class="toggle-row">
-            <input
-              type="checkbox"
-              checked={autostartEnabled}
-              onchange={(e) => toggleAutostart(e.currentTarget.checked)}
-            />
-            <span>Start at login</span>
-          </label>
-        </div>
-      {/if}
-    </section>
-  {:else if showAnalytics}
-    <section class="analytics">
-      <h2>Usage Analytics</h2>
-
-      <div class="time-range-selector">
-        <button class="range-btn" class:active={analyticsTimeRange === "1h"} onclick={() => changeTimeRange("1h")}>1h</button>
-        <button class="range-btn" class:active={analyticsTimeRange === "6h"} onclick={() => changeTimeRange("6h")}>6h</button>
-        <button class="range-btn" class:active={analyticsTimeRange === "24h"} onclick={() => changeTimeRange("24h")}>24h</button>
-        <button class="range-btn" class:active={analyticsTimeRange === "7d"} onclick={() => changeTimeRange("7d")}>7d</button>
-        <button class="range-btn" class:active={analyticsTimeRange === "30d"} onclick={() => changeTimeRange("30d")}>30d</button>
-      </div>
-
-      <div class="chart-section">
-        <UsageLineChart data={analyticsHistory} height={220} />
-      </div>
-    </section>
-  {:else}
-    <section class="dashboard">
-      <div class="refresh-row">
-        <div class="update-info">
-          <span class="last-update">Updated: {formatLastUpdate(lastUpdateTime)}</span>
-          {#if settings.auto_refresh_enabled}
-            <span class="next-update">Next: {formatCountdown(secondsUntilNextUpdate)}</span>
-          {:else}
-            <span class="next-update disabled">Auto-refresh off</span>
-          {/if}
-        </div>
-        <button class="refresh-btn" onclick={fetchUsage} disabled={loading}>
-          {loading ? "Loading..." : "Refresh"}
-        </button>
-      </div>
-
-      {#if loading && !usageData}
-        <div class="loading">Loading usage data...</div>
-      {:else if error}
-        <div class="error">
-          <p>{error}</p>
-          <button onclick={fetchUsage}>Retry</button>
-        </div>
-      {:else if usageData}
-        <div class="usage-grid">
-          {@render usageCard("5 Hour", usageData.five_hour)}
-          {@render usageCard("7 Day", usageData.seven_day)}
-          {@render usageCard("Sonnet (7 Day)", usageData.seven_day_sonnet)}
-          {@render usageCard("Opus (7 Day)", usageData.seven_day_opus)}
-        </div>
-      {:else}
-        <div class="empty">No usage data available</div>
-      {/if}
-    </section>
-  {/if}
+        {#if loading && !usageData}
+          <div class="loading">Loading usage data...</div>
+        {:else if error}
+          <div class="error">
+            <p>{error}</p>
+            <button onclick={fetchUsage}>Retry</button>
+          </div>
+        {:else if usageData}
+          <div class="usage-grid">
+            {@render usageCard("5 Hour", usageData.five_hour)}
+            {@render usageCard("7 Day", usageData.seven_day)}
+            {@render usageCard("Sonnet (7 Day)", usageData.seven_day_sonnet)}
+            {@render usageCard("Opus (7 Day)", usageData.seven_day_opus)}
+          </div>
+        {:else}
+          <div class="empty">No usage data available</div>
+        {/if}
+      </section>
+    {/if}
   {/if}
 </main>
 
@@ -618,7 +706,13 @@ async function clearSettings() {
   }
 
   :root {
-    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family:
+      Inter,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      Roboto,
+      sans-serif;
     font-size: 14px;
     line-height: 1.5;
     color: #1a1a1a;
