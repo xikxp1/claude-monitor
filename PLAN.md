@@ -206,12 +206,68 @@ Complete implementation plan for Claude Monitor.
 - [x] Secure token storage (moved to Phase 7)
 - [ ] Clear credentials button with confirmation
 
-### Long Term (Lower Priority)
+### Phase 8: Charts & Usage Analytics
 
-#### Charts & Analytics
-- [ ] Add lightweight charting library
-- [ ] Usage trend over time
-- [ ] Historical data storage
+A comprehensive analytics system to visualize usage trends and patterns over time.
+
+#### 8.1 Dependencies & Setup
+- [x] Add d3-scale for chart scaling functions
+- [x] Add `tauri-plugin-sql` for SQLite storage (better for time-series queries)
+- [x] Add SQL plugin permissions to capabilities
+- [x] Initialize SQL plugin in Rust backend
+
+#### 8.2 Historical Data Storage
+- [x] Design and implement database schema with usage_history table
+- [x] Create `historyStorage.ts` utility module:
+  - `saveUsageSnapshot(usage: UsageData)` - Store current usage with timestamp
+  - `getUsageHistory(from: Date, to: Date)` - Query historical data
+  - `getUsageHistoryByRange(range: TimeRange)` - Query by preset time range
+  - `getLatestSnapshots(count: number)` - Get recent N snapshots
+  - `getUsageStats(range: TimeRange)` - Get statistics (avg, max) for time range
+  - `cleanupOldData(retentionDays: number)` - Remove data older than retention period
+- [x] Auto-save usage snapshot on each successful fetch
+- [ ] Add retention period setting in General settings
+
+#### 8.3 Analytics Components
+- [x] Create `src/lib/components/charts/` directory
+- [x] **UsageLineChart**: All usage types over time
+  - Configurable time range (1h, 6h, 24h, 7d, 30d)
+  - Responsive sizing with d3-scale
+  - Legend with color coding
+  - Dark/light mode support
+- [x] **UsageStats**: Summary statistics
+  - Average usage per period
+  - Peak usage (max recorded)
+  - Data point count
+
+#### 8.4 Analytics View
+- [x] Add "Analytics" button to header (alongside Settings)
+- [x] Time range selector (1h, 6h, 24h, 7d, 30d)
+- [x] Usage trend chart section
+- [x] Statistics summary section
+- [ ] Usage type filter (show/hide specific types)
+- [ ] Export data option (CSV)
+
+#### 8.5 Chart Styling
+- [x] Match existing app theme (dark/light mode)
+- [x] Use consistent color palette:
+  - 5 Hour: Blue (#3b82f6)
+  - 7 Day: Purple (#8b5cf6)
+  - Sonnet: Green (#22c55e)
+  - Opus: Orange (#f59e0b)
+- [x] Responsive design for popup window size
+- [ ] Threshold lines on charts (50%, 80%, 90%)
+- [ ] Hover tooltips with exact values
+
+#### 8.6 Advanced Features (Future)
+- [ ] Usage predictions based on historical patterns
+- [ ] Alerts when approaching limits based on velocity
+- [ ] Compare current period to previous periods
+- [ ] Heatmap of usage by hour/day of week
+
+---
+
+### Long Term (Lower Priority)
 
 #### Distribution
 - [x] App icon design (all sizes)
@@ -235,6 +291,7 @@ tauri-plugin-nspopover = { git = "https://github.com/freethinkel/tauri-nspopover
 tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-stronghold = "2"
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }  # Phase 8: Analytics
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
@@ -251,7 +308,12 @@ chrono = { version = "0.4", features = ["serde"] }
     "@tauri-apps/plugin-autostart": "^2",
     "@tauri-apps/plugin-notification": "^2",
     "@tauri-apps/plugin-store": "^2",
-    "@tauri-apps/plugin-stronghold": "^2"
+    "@tauri-apps/plugin-stronghold": "^2",
+    "@tauri-apps/plugin-sql": "^2",
+    "d3-scale": "^4"
+  },
+  "devDependencies": {
+    "@types/d3-scale": "^4"
   }
 }
 ```
@@ -265,9 +327,15 @@ claude-monitor/
 ├── src/
 │   ├── lib/
 │   │   ├── components/
-│   │   │   └── NotificationSettings.svelte  # Notification config UI
+│   │   │   ├── NotificationSettings.svelte  # Notification config UI
+│   │   │   └── charts/                       # Phase 8: Analytics charts
+│   │   │       ├── UsageLineChart.svelte     # Time-series line chart
+│   │   │       ├── UsageAreaChart.svelte     # Stacked area chart
+│   │   │       ├── UsageStats.svelte         # Summary statistics
+│   │   │       └── ChartContainer.svelte     # Reusable wrapper
 │   │   ├── notifications.ts                  # Notification logic
 │   │   ├── secureStorage.ts                  # Stronghold secure storage utility
+│   │   ├── historyStorage.ts                 # Phase 8: SQLite history storage
 │   │   └── types.ts                          # TypeScript types
 │   ├── routes/
 │   │   └── +page.svelte                      # Main dashboard + settings
@@ -333,3 +401,25 @@ The Claude usage API returns:
 - `secureStorage.ts` utility provides: `saveCredentials()`, `getCredentials()`, `deleteCredentials()`, `initSecureStorage()`, `resetSecureStorage()`
 - Organization ID and session token stored separately in Stronghold store
 - **Performance optimization**: Uses singleton promise pattern to handle slow argon2 initialization; call `initSecureStorage()` early in app startup
+
+### Charts & Analytics (Phase 8)
+- **Charting Library**: Layercake recommended for Svelte-native experience
+  - Composable, uses Svelte's reactivity
+  - SVG-based, lightweight (~12KB)
+  - Supports line, area, bar, scatter, and custom visualizations
+  - Built-in responsive scaling
+- **Data Storage**: SQLite via `tauri-plugin-sql`
+  - Better for time-series queries than JSON store
+  - Supports aggregation (AVG, MAX, MIN) for statistics
+  - Efficient date range queries with indexed timestamp column
+  - Database file: `usage_history.db` in app data directory
+- **Data Sampling Strategy**:
+  - Store one snapshot per fetch (every 1-30 min based on refresh interval)
+  - For charts, downsample to reasonable points (e.g., 100-200 points max)
+  - Use SQL aggregation for longer time ranges
+- **Color Palette** (consistent with usage cards):
+  - 5 Hour: `#3b82f6` (Blue)
+  - 7 Day: `#8b5cf6` (Purple)
+  - Sonnet: `#22c55e` (Green)
+  - Opus: `#f59e0b` (Orange)
+- **Retention Policy**: Default 30 days, configurable in settings

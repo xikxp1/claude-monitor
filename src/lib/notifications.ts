@@ -1,15 +1,5 @@
-import {
-  isPermissionGranted,
-  requestPermission,
-  sendNotification,
-} from "@tauri-apps/plugin-notification";
-import type {
-  NotificationRule,
-  NotificationSettings,
-  NotificationState,
-  UsageData,
-  UsageType,
-} from "./types";
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+import type { NotificationRule, NotificationSettings, NotificationState, UsageData, UsageType } from "./types";
 import { USAGE_TYPE_LABELS } from "./types";
 
 /**
@@ -61,11 +51,7 @@ function checkThresholdNotification(
   for (const threshold of thresholds) {
     const key = `${usageType}:${threshold}`;
     // Check if we crossed this threshold and haven't notified yet
-    if (
-      currentUtilization >= threshold &&
-      lastNotified < threshold &&
-      !firedThresholds.includes(key)
-    ) {
+    if (currentUtilization >= threshold && lastNotified < threshold && !firedThresholds.includes(key)) {
       return threshold;
     }
   }
@@ -105,11 +91,7 @@ export async function processNotifications(
 
     // Check interval notification
     if (rule.interval_enabled) {
-      const intervalLevel = checkIntervalNotification(
-        currentUtilization,
-        lastNotified,
-        rule.interval_percent,
-      );
+      const intervalLevel = checkIntervalNotification(currentUtilization, lastNotified, rule.interval_percent);
       if (intervalLevel !== null) {
         notifications.push(`reached ${intervalLevel}%`);
       }
@@ -165,10 +147,7 @@ export async function processNotifications(
  * Reset notification state when usage resets (utilization drops significantly)
  * This allows threshold notifications to fire again after a reset
  */
-export function resetNotificationStateIfNeeded(
-  usageData: UsageData,
-  state: NotificationState,
-): NotificationState {
+export function resetNotificationStateIfNeeded(usageData: UsageData, state: NotificationState): NotificationState {
   const newState: NotificationState = { ...state };
   const usageTypes: UsageType[] = ["five_hour", "seven_day", "seven_day_sonnet", "seven_day_opus"];
 
@@ -209,9 +188,7 @@ export function resetNotificationStateIfNeeded(
           break;
       }
       // Clear fired thresholds for this usage type
-      newState.fired_thresholds = newState.fired_thresholds.filter(
-        (t) => !t.startsWith(`${usageType}:`),
-      );
+      newState.fired_thresholds = newState.fired_thresholds.filter((t) => !t.startsWith(`${usageType}:`));
     }
   }
 

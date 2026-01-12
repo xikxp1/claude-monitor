@@ -1,32 +1,32 @@
 <script lang="ts">
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { LazyStore } from "@tauri-apps/plugin-store";
-import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
-import { onMount } from "svelte";
-import type {
-  Settings,
-  UsageData,
-  UsagePeriod,
-  NotificationSettings,
-  NotificationState,
-} from "$lib/types";
 import {
-  getDefaultNotificationSettings,
-  getDefaultNotificationState,
-} from "$lib/types";
+  disable as disableAutostart,
+  enable as enableAutostart,
+  isEnabled as isAutostartEnabled,
+} from "@tauri-apps/plugin-autostart";
+import { LazyStore } from "@tauri-apps/plugin-store";
+import { onMount } from "svelte";
+import UsageLineChart from "$lib/components/charts/UsageLineChart.svelte";
 import NotificationSettingsComponent from "$lib/components/NotificationSettings.svelte";
 import {
-  processNotifications,
-  resetNotificationStateIfNeeded,
-} from "$lib/notifications";
+  getUsageHistoryByRange,
+  initHistoryStorage,
+  saveUsageSnapshot,
+  type TimeRange,
+  type UsageHistoryRecord,
+} from "$lib/historyStorage";
+import { processNotifications, resetNotificationStateIfNeeded } from "$lib/notifications";
 import {
-  saveCredentials,
-  getCredentials,
   deleteCredentials,
+  getCredentials,
   initSecureStorage,
   resetSecureStorage,
+  saveCredentials,
 } from "$lib/secureStorage";
+import type { NotificationSettings, NotificationState, Settings, UsageData, UsagePeriod } from "$lib/types";
+import { getDefaultNotificationSettings, getDefaultNotificationState } from "$lib/types";
 
 let settings: Settings = $state({
   organization_id: null,
@@ -58,6 +58,12 @@ let countdownInterval: ReturnType<typeof setInterval> | null = null;
 // Auto-start state
 let autostartEnabled = $state(false);
 
+// Analytics state
+let showAnalytics = $state(false);
+let analyticsTimeRange: TimeRange = $state("24h");
+let analyticsHistory: UsageHistoryRecord[] = $state([]);
+let analyticsLoading = $state(false);
+
 const isConfigured = $derived(settings.organization_id !== null && settings.session_token !== null);
 
 const store = new LazyStore("settings.json", { autoSave: true, defaults: {} });
@@ -65,7 +71,8 @@ const store = new LazyStore("settings.json", { autoSave: true, defaults: {} });
 let unlistenFn: UnlistenFn | null = null;
 
 function getUsageColor(utilization: number): string {
-  if (utilization >= 80) return "red";
+  if (utilization >= 90) return "red";
+  if (utilization >= 80) return "orange";
   if (utilization >= 50) return "yellow";
   return "green";
 }
@@ -149,6 +156,8 @@ function stopAutoRefresh() {
 onMount(() => {
   // Start secure storage initialization early (argon2 is slow)
   initSecureStorage();
+  // Initialize history storage for analytics
+  initHistoryStorage();
 
   initApp();
 
@@ -291,15 +300,18 @@ async function fetchUsage() {
     // Update tray tooltip with usage data
     await invoke("update_tray_tooltip", { usage: newUsageData });
 
+    // Save usage snapshot for analytics
+    try {
+      await saveUsageSnapshot(newUsageData);
+    } catch (e) {
+      console.error("Failed to save usage snapshot:", e);
+    }
+
     // Check for usage resets and clear notification state if needed
     notificationState = resetNotificationStateIfNeeded(newUsageData, notificationState);
 
     // Process notifications
-    const newNotificationState = await processNotifications(
-      newUsageData,
-      notificationSettings,
-      notificationState,
-    );
+    const newNotificationState = await processNotifications(newUsageData, notificationSettings, notificationState);
 
     if (newNotificationState !== notificationState) {
       notificationState = newNotificationState;
@@ -314,6 +326,28 @@ async function fetchUsage() {
   } finally {
     loading = false;
   }
+}
+
+async function loadAnalytics() {
+  analyticsLoading = true;
+  try {
+    analyticsHistory = await getUsageHistoryByRange(analyticsTimeRange);
+  } catch (e) {
+    console.error("Failed to load analytics:", e);
+  } finally {
+    analyticsLoading = false;
+  }
+}
+
+async function changeTimeRange(range: TimeRange) {
+  analyticsTimeRange = range;
+  await loadAnalytics();
+}
+
+async function openAnalytics() {
+  showAnalytics = true;
+  showSettings = false;
+  await loadAnalytics();
 }
 
 async function clearSettings() {
@@ -358,6 +392,7 @@ async function clearSettings() {
           class="usage-bar"
           class:green={color === "green"}
           class:yellow={color === "yellow"}
+          class:orange={color === "orange"}
           class:red={color === "red"}
           style="width: {Math.min(period.utilization, 100)}%"
         ></div>
@@ -377,9 +412,22 @@ async function clearSettings() {
     <header>
       <h1><span class="claude">Claude</span> <span class="monitor">Monitor</span></h1>
       {#if isConfigured}
-        <button class="header-btn" onclick={() => (showSettings = !showSettings)}>
-          {showSettings ? "Dashboard" : "Settings"}
-        </button>
+        <div class="header-buttons">
+          <button
+            class="header-btn"
+            class:active={showAnalytics}
+            onclick={() => { if (showAnalytics) { showAnalytics = false; } else { openAnalytics(); } }}
+          >
+            {showAnalytics ? "Dashboard" : "Analytics"}
+          </button>
+          <button
+            class="header-btn"
+            class:active={showSettings}
+            onclick={() => { showSettings = !showSettings; showAnalytics = false; }}
+          >
+            {showSettings ? "Dashboard" : "Settings"}
+          </button>
+        </div>
       {/if}
     </header>
 
@@ -505,6 +553,22 @@ async function clearSettings() {
           </label>
         </div>
       {/if}
+    </section>
+  {:else if showAnalytics}
+    <section class="analytics">
+      <h2>Usage Analytics</h2>
+
+      <div class="time-range-selector">
+        <button class="range-btn" class:active={analyticsTimeRange === "1h"} onclick={() => changeTimeRange("1h")}>1h</button>
+        <button class="range-btn" class:active={analyticsTimeRange === "6h"} onclick={() => changeTimeRange("6h")}>6h</button>
+        <button class="range-btn" class:active={analyticsTimeRange === "24h"} onclick={() => changeTimeRange("24h")}>24h</button>
+        <button class="range-btn" class:active={analyticsTimeRange === "7d"} onclick={() => changeTimeRange("7d")}>7d</button>
+        <button class="range-btn" class:active={analyticsTimeRange === "30d"} onclick={() => changeTimeRange("30d")}>30d</button>
+      </div>
+
+      <div class="chart-section">
+        <UsageLineChart data={analyticsHistory} height={220} />
+      </div>
     </section>
   {:else}
     <section class="dashboard">
@@ -637,9 +701,14 @@ async function clearSettings() {
     font-weight: 600;
   }
 
+  .header-buttons {
+    display: flex;
+    gap: 6px;
+  }
+
   .header-btn {
-    padding: 6px 14px;
-    font-size: 0.8rem;
+    padding: 6px 12px;
+    font-size: 0.75rem;
     font-weight: 500;
     background: #f0f4f8;
     border: 1px solid #d0d7de;
@@ -655,6 +724,12 @@ async function clearSettings() {
     color: #fff;
   }
 
+  .header-btn.active {
+    background: #7c3aed;
+    border-color: #7c3aed;
+    color: #fff;
+  }
+
   @media (prefers-color-scheme: dark) {
     .header-btn {
       background: #2a3a4a;
@@ -662,10 +737,93 @@ async function clearSettings() {
       color: #c0d0e0;
     }
 
-    .header-btn:hover {
+    .header-btn:hover,
+    .header-btn.active {
       background: #7c3aed;
       border-color: #7c3aed;
       color: #fff;
+    }
+  }
+
+  .analytics {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .analytics h2 {
+    margin: 0 0 4px;
+    margin-left: 4px;
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+
+  .time-range-selector {
+    display: flex;
+    gap: 4px;
+    background: #e5e5e5;
+    border-radius: 8px;
+    padding: 4px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .time-range-selector {
+      background: #2a2a2a;
+    }
+  }
+
+  .range-btn {
+    flex: 1;
+    padding: 6px 8px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: #666;
+    transition: all 0.15s ease;
+  }
+
+  .range-btn:hover {
+    background: rgba(124, 58, 237, 0.7);
+    color: #fff;
+  }
+
+  .range-btn.active {
+    background: #7c3aed;
+    color: #fff;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .range-btn {
+      color: #999;
+    }
+
+    .range-btn:hover {
+      background: rgba(124, 58, 237, 0.7);
+      color: #fff;
+    }
+
+    .range-btn.active {
+      background: #7c3aed;
+      color: #fff;
+    }
+  }
+
+  .chart-section {
+    background: #fff;
+    border-radius: 10px;
+    padding: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .chart-section {
+      background: #2a2a2a;
+      box-shadow: none;
     }
   }
 
@@ -1029,6 +1187,10 @@ async function clearSettings() {
 
   .usage-bar.yellow {
     background: #eab308;
+  }
+
+  .usage-bar.orange {
+    background: #f97316;
   }
 
   .usage-bar.red {

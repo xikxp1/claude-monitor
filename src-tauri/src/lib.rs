@@ -156,15 +156,27 @@ async fn fetch_usage_from_api(org_id: &str, session_token: &str) -> Result<Usage
     );
 
     let response = client.get(&url).headers(headers).send().await?;
+    let status = response.status().as_u16();
 
-    match response.status().as_u16() {
+    match status {
         200 => {
-            let data: UsageData = response.json().await?;
-            Ok(data)
+            let body = response.text().await?;
+            match serde_json::from_str::<UsageData>(&body) {
+                Ok(data) => Ok(data),
+                Err(e) => {
+                    eprintln!("Failed to parse usage response: {}", e);
+                    eprintln!("Response body: {}", body);
+                    Err(AppError::Server(format!("Failed to parse response: {}", e)))
+                }
+            }
         }
         401 => Err(AppError::InvalidToken),
         429 => Err(AppError::RateLimited),
-        status => Err(AppError::Server(format!("HTTP {}", status))),
+        status => {
+            let body = response.text().await.unwrap_or_default();
+            eprintln!("HTTP error {}: {}", status, body);
+            Err(AppError::Server(format!("HTTP {}", status)))
+        }
     }
 }
 
@@ -311,6 +323,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_sql::Builder::new().build())
         .invoke_handler(tauri::generate_handler![get_usage, get_default_settings, update_tray_tooltip])
         .setup(|app| {
             // Initialize Stronghold with argon2 key derivation

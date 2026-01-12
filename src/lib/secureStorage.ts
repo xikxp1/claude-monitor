@@ -1,5 +1,5 @@
-import { Client, Stronghold } from "@tauri-apps/plugin-stronghold";
 import { appDataDir } from "@tauri-apps/api/path";
+import { Client, Stronghold } from "@tauri-apps/plugin-stronghold";
 
 const VAULT_NAME = "credentials";
 const STRONGHOLD_PASSWORD = "claude-monitor-secure-storage";
@@ -44,10 +44,7 @@ export interface Credentials {
   sessionToken: string | null;
 }
 
-export async function saveCredentials(
-  organizationId: string,
-  sessionToken: string,
-): Promise<void> {
+export async function saveCredentials(organizationId: string, sessionToken: string): Promise<void> {
   const { stronghold, client } = await getInitialized();
   const store = client.getStore();
 

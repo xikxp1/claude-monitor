@@ -28,6 +28,11 @@
     "stronghold:allow-save-secret",
     "stronghold:allow-get-store-record",
     "stronghold:allow-save-store-record",
-    "stronghold:allow-remove-store-record"
+    "stronghold:allow-remove-store-record",
+    "sql:default",
+    "sql:allow-load",
+    "sql:allow-execute",
+    "sql:allow-select",
+    "sql:allow-close"
   ]
 }
