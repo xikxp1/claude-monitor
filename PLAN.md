@@ -187,6 +187,65 @@ Complete implementation plan for Claude Monitor.
 - [x] Update saveSettings to save credentials to Stronghold
 - [x] Update clearSettings to delete credentials from Stronghold
 
+### Phase 8: Charts & Usage Analytics
+
+A comprehensive analytics system to visualize usage trends and patterns over time.
+
+#### 8.1 Dependencies & Setup
+- [x] Add d3-scale for chart scaling functions
+- [x] Add `tauri-plugin-sql` for SQLite storage (better for time-series queries)
+- [x] Add SQL plugin permissions to capabilities
+- [x] Initialize SQL plugin in Rust backend
+
+#### 8.2 Historical Data Storage
+- [x] Design and implement database schema with usage_history table
+- [x] Create `historyStorage.ts` utility module:
+  - `saveUsageSnapshot(usage: UsageData)` - Store current usage with timestamp
+  - `getUsageHistory(from: Date, to: Date)` - Query historical data
+  - `getUsageHistoryByRange(range: TimeRange)` - Query by preset time range
+  - `getLatestSnapshots(count: number)` - Get recent N snapshots
+  - `getUsageStats(range: TimeRange)` - Get statistics (avg, max) for time range
+  - `cleanupOldData(retentionDays: number)` - Remove data older than retention period
+- [x] Auto-save usage snapshot on each successful fetch
+- [x] Add retention period setting in General settings
+
+#### 8.3 Analytics Components
+- [x] Create `src/lib/components/charts/` directory
+- [x] **UsageLineChart**: All usage types over time
+  - Configurable time range (1h, 6h, 24h, 7d, 30d)
+  - Responsive sizing with d3-scale
+  - Legend with color coding
+  - Dark/light mode support
+- [x] **UsageStats**: Summary statistics
+  - Average usage per period
+  - Peak usage (max recorded)
+  - Data point count
+
+#### 8.4 Analytics View
+- [x] Add "Analytics" button to header (alongside Settings)
+- [x] Time range selector (1h, 6h, 24h, 7d, 30d)
+- [x] Usage trend chart section
+- [x] Statistics summary section
+- [ ] Usage type filter (show/hide specific types)
+- [ ] Export data option (CSV)
+
+#### 8.5 Chart Styling
+- [x] Match existing app theme (dark/light mode)
+- [x] Use consistent color palette:
+  - 5 Hour: Blue (#3b82f6)
+  - 7 Day: Purple (#8b5cf6)
+  - Sonnet: Green (#22c55e)
+  - Opus: Orange (#f59e0b)
+- [x] Responsive design for popup window size
+- [x] Threshold lines on charts (50%, 80%, 90%)
+- [ ] Hover tooltips with exact values
+
+#### 8.6 Advanced Features (Future)
+- [ ] Usage predictions based on historical patterns
+- [ ] Alerts when approaching limits based on velocity
+- [ ] Compare current period to previous periods
+- [ ] Heatmap of usage by hour/day of week
+
 ---
 
 ## Next Steps (Prioritized)
@@ -217,65 +276,6 @@ Complete implementation plan for Claude Monitor.
 - [x] Refresh interval slider/dropdown (moved to Phase 5.2)
 - [x] Secure token storage (moved to Phase 7)
 - [ ] Clear credentials button with confirmation
-
-### Phase 8: Charts & Usage Analytics
-
-A comprehensive analytics system to visualize usage trends and patterns over time.
-
-#### 8.1 Dependencies & Setup
-- [x] Add d3-scale for chart scaling functions
-- [x] Add `tauri-plugin-sql` for SQLite storage (better for time-series queries)
-- [x] Add SQL plugin permissions to capabilities
-- [x] Initialize SQL plugin in Rust backend
-
-#### 8.2 Historical Data Storage
-- [x] Design and implement database schema with usage_history table
-- [x] Create `historyStorage.ts` utility module:
-  - `saveUsageSnapshot(usage: UsageData)` - Store current usage with timestamp
-  - `getUsageHistory(from: Date, to: Date)` - Query historical data
-  - `getUsageHistoryByRange(range: TimeRange)` - Query by preset time range
-  - `getLatestSnapshots(count: number)` - Get recent N snapshots
-  - `getUsageStats(range: TimeRange)` - Get statistics (avg, max) for time range
-  - `cleanupOldData(retentionDays: number)` - Remove data older than retention period
-- [x] Auto-save usage snapshot on each successful fetch
-- [ ] Add retention period setting in General settings
-
-#### 8.3 Analytics Components
-- [x] Create `src/lib/components/charts/` directory
-- [x] **UsageLineChart**: All usage types over time
-  - Configurable time range (1h, 6h, 24h, 7d, 30d)
-  - Responsive sizing with d3-scale
-  - Legend with color coding
-  - Dark/light mode support
-- [x] **UsageStats**: Summary statistics
-  - Average usage per period
-  - Peak usage (max recorded)
-  - Data point count
-
-#### 8.4 Analytics View
-- [x] Add "Analytics" button to header (alongside Settings)
-- [x] Time range selector (1h, 6h, 24h, 7d, 30d)
-- [x] Usage trend chart section
-- [x] Statistics summary section
-- [ ] Usage type filter (show/hide specific types)
-- [ ] Export data option (CSV)
-
-#### 8.5 Chart Styling
-- [x] Match existing app theme (dark/light mode)
-- [x] Use consistent color palette:
-  - 5 Hour: Blue (#3b82f6)
-  - 7 Day: Purple (#8b5cf6)
-  - Sonnet: Green (#22c55e)
-  - Opus: Orange (#f59e0b)
-- [x] Responsive design for popup window size
-- [ ] Threshold lines on charts (50%, 80%, 90%)
-- [ ] Hover tooltips with exact values
-
-#### 8.6 Advanced Features (Future)
-- [ ] Usage predictions based on historical patterns
-- [ ] Alerts when approaching limits based on velocity
-- [ ] Compare current period to previous periods
-- [ ] Heatmap of usage by hour/day of week
 
 ---
 

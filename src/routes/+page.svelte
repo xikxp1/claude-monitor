@@ -11,6 +11,7 @@
   import UsageLineChart from "$lib/components/charts/UsageLineChart.svelte";
   import NotificationSettingsComponent from "$lib/components/NotificationSettings.svelte";
   import {
+    cleanupOldData,
     getUsageHistoryByRange,
     initHistoryStorage,
     saveUsageSnapshot,
@@ -74,6 +75,9 @@
 
   // Auto-start state
   let autostartEnabled = $state(false);
+
+  // Data retention
+  let dataRetentionDays = $state(30);
 
   // Analytics state
   let showAnalytics = $state(false);
@@ -272,6 +276,20 @@
       autostartEnabled = false;
     }
 
+    // Load data retention setting
+    const savedRetention = await store.get<number>("data_retention_days");
+    dataRetentionDays = savedRetention ?? 30;
+
+    // Cleanup old data based on retention policy
+    try {
+      const deleted = await cleanupOldData(dataRetentionDays);
+      if (deleted > 0) {
+        console.log(`Cleaned up ${deleted} old usage records`);
+      }
+    } catch (e) {
+      console.error("Failed to cleanup old data:", e);
+    }
+
     // Send credentials and settings to backend to start auto-refresh
     await invoke("set_credentials", {
       orgId: settings.organization_id,
@@ -347,6 +365,21 @@
       autostartEnabled = enabled;
     } catch (e) {
       console.error("Failed to toggle autostart:", e);
+    }
+  }
+
+  async function saveDataRetention(days: number) {
+    dataRetentionDays = days;
+    await store.set("data_retention_days", days);
+
+    // Run cleanup with new retention policy
+    try {
+      const deleted = await cleanupOldData(days);
+      if (deleted > 0) {
+        console.log(`Cleaned up ${deleted} old usage records`);
+      }
+    } catch (e) {
+      console.error("Failed to cleanup old data:", e);
     }
   }
 
@@ -615,6 +648,21 @@
                 onchange={(e) => toggleAutostart(e.currentTarget.checked)}
               />
               <span>Start at login</span>
+            </label>
+
+            <label class="select-row">
+              <span>Data retention</span>
+              <select
+                value={dataRetentionDays}
+                onchange={(e) =>
+                  saveDataRetention(Number.parseInt(e.currentTarget.value, 10))}
+              >
+                <option value={7}>7 days</option>
+                <option value={14}>14 days</option>
+                <option value={30}>30 days</option>
+                <option value={60}>60 days</option>
+                <option value={90}>90 days</option>
+              </select>
             </label>
           </div>
         {/if}
