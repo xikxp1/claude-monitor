@@ -1,5 +1,6 @@
 use reqwest::header::{HeaderMap, HeaderValue, COOKIE, USER_AGENT};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -8,6 +9,7 @@ use tauri::{
 #[cfg(not(target_os = "macos"))]
 use tauri_plugin_positioner::{on_tray_event, Position, WindowExt};
 use thiserror::Error;
+use tokio::sync::{watch, Mutex};
 
 // ============================================================================
 // Error Types
@@ -133,6 +135,50 @@ pub struct NotificationState {
 }
 
 // ============================================================================
+// Auto-Refresh State
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoRefreshConfig {
+    pub organization_id: Option<String>,
+    pub session_token: Option<String>,
+    pub enabled: bool,
+    pub interval_minutes: u32,
+}
+
+impl Default for AutoRefreshConfig {
+    fn default() -> Self {
+        Self {
+            organization_id: None,
+            session_token: None,
+            enabled: true,
+            interval_minutes: 5,
+        }
+    }
+}
+
+/// Event payload sent to frontend when usage is updated
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageUpdateEvent {
+    pub usage: UsageData,
+    pub next_refresh_at: Option<i64>, // Unix timestamp in milliseconds
+}
+
+/// Event payload sent to frontend when an error occurs
+#[derive(Debug, Clone, Serialize)]
+pub struct UsageErrorEvent {
+    pub error: String,
+}
+
+/// Shared application state
+pub struct AppState {
+    pub config: Mutex<AutoRefreshConfig>,
+    /// Channel to signal the refresh loop to restart
+    pub restart_tx: watch::Sender<()>,
+}
+
+// ============================================================================
 // API Client
 // ============================================================================
 
@@ -181,21 +227,10 @@ async fn fetch_usage_from_api(org_id: &str, session_token: &str) -> Result<Usage
 }
 
 // ============================================================================
-// Tauri Commands
+// Auto-Refresh Loop
 // ============================================================================
 
-#[tauri::command]
-async fn get_usage(org_id: String, session_token: String) -> Result<UsageData, AppError> {
-    fetch_usage_from_api(&org_id, &session_token).await
-}
-
-#[tauri::command]
-fn get_default_settings() -> Settings {
-    Settings::default()
-}
-
-#[tauri::command]
-fn update_tray_tooltip(app: tauri::AppHandle, usage: Option<UsageData>) {
+fn update_tray_tooltip_internal<R: Runtime>(app: &tauri::AppHandle<R>, usage: Option<&UsageData>) {
     if let Some(tray) = app.tray_by_id("main") {
         let tooltip = match usage {
             Some(data) => {
@@ -224,6 +259,141 @@ fn update_tray_tooltip(app: tauri::AppHandle, usage: Option<UsageData>) {
     }
 }
 
+async fn do_fetch_and_emit(app: &tauri::AppHandle, state: &AppState, interval_minutes: u32) {
+    let config = state.config.lock().await;
+    let org_id = config.organization_id.clone();
+    let session_token = config.session_token.clone();
+    let enabled = config.enabled;
+    drop(config);
+
+    if let (Some(org_id), Some(session_token)) = (org_id, session_token) {
+        match fetch_usage_from_api(&org_id, &session_token).await {
+            Ok(usage) => {
+                // Update tray tooltip
+                update_tray_tooltip_internal(app, Some(&usage));
+
+                // Calculate next refresh time
+                let next_refresh_at = if enabled {
+                    Some(chrono::Utc::now().timestamp_millis() + (interval_minutes as i64 * 60 * 1000))
+                } else {
+                    None
+                };
+
+                // Emit usage update event
+                let _ = app.emit("usage-updated", UsageUpdateEvent {
+                    usage,
+                    next_refresh_at,
+                });
+            }
+            Err(e) => {
+                eprintln!("Auto-refresh error: {}", e);
+                let _ = app.emit("usage-error", UsageErrorEvent {
+                    error: e.to_string(),
+                });
+            }
+        }
+    }
+}
+
+async fn auto_refresh_loop(app: tauri::AppHandle, state: Arc<AppState>) {
+    let mut restart_rx = state.restart_tx.subscribe();
+
+    loop {
+        // Get current config
+        let config = state.config.lock().await;
+        let enabled = config.enabled;
+        let interval_minutes = config.interval_minutes;
+        let has_credentials = config.organization_id.is_some() && config.session_token.is_some();
+        drop(config);
+
+        if !enabled || !has_credentials {
+            // Wait for restart signal if disabled or no credentials
+            let _ = restart_rx.changed().await;
+            continue;
+        }
+
+        // Fetch immediately
+        do_fetch_and_emit(&app, &state, interval_minutes).await;
+
+        // Wait for either the interval to pass or a restart signal
+        let interval_duration = std::time::Duration::from_secs(interval_minutes as u64 * 60);
+
+        tokio::select! {
+            _ = tokio::time::sleep(interval_duration) => {
+                // Interval elapsed, continue to next iteration
+            }
+            _ = restart_rx.changed() => {
+                // Restart signal received, continue to next iteration immediately
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Tauri Commands
+// ============================================================================
+
+#[tauri::command]
+async fn get_usage(org_id: String, session_token: String) -> Result<UsageData, AppError> {
+    fetch_usage_from_api(&org_id, &session_token).await
+}
+
+#[tauri::command]
+fn get_default_settings() -> Settings {
+    Settings::default()
+}
+
+/// Set credentials and restart auto-refresh loop
+#[tauri::command]
+async fn set_credentials(
+    state: tauri::State<'_, Arc<AppState>>,
+    org_id: Option<String>,
+    session_token: Option<String>,
+) -> Result<(), ()> {
+    let mut config = state.config.lock().await;
+    config.organization_id = org_id;
+    config.session_token = session_token;
+    drop(config);
+
+    // Signal the loop to restart
+    let _ = state.restart_tx.send(());
+    Ok(())
+}
+
+/// Update auto-refresh settings and restart loop
+#[tauri::command]
+async fn set_auto_refresh(
+    state: tauri::State<'_, Arc<AppState>>,
+    enabled: bool,
+    interval_minutes: u32,
+) -> Result<(), ()> {
+    let mut config = state.config.lock().await;
+    config.enabled = enabled;
+    config.interval_minutes = interval_minutes;
+    drop(config);
+
+    // Signal the loop to restart
+    let _ = state.restart_tx.send(());
+    Ok(())
+}
+
+/// Trigger immediate refresh
+#[tauri::command]
+async fn refresh_now(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<(), ()> {
+    let config = state.config.lock().await;
+    let interval_minutes = config.interval_minutes;
+    drop(config);
+
+    do_fetch_and_emit(&app, &state, interval_minutes).await;
+
+    // Signal the loop to restart (resets the timer)
+    let _ = state.restart_tx.send(());
+    Ok(())
+}
+
 // ============================================================================
 // System Tray
 // ============================================================================
@@ -248,8 +418,9 @@ fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
                 }
             }
             "refresh" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.emit("refresh-usage", ());
+                // Trigger refresh via state
+                if let Some(state) = app.try_state::<Arc<AppState>>() {
+                    let _ = state.restart_tx.send(());
                 }
             }
             "quit" => {
@@ -324,7 +495,13 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_sql::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![get_usage, get_default_settings, update_tray_tooltip])
+        .invoke_handler(tauri::generate_handler![
+            get_usage,
+            get_default_settings,
+            set_credentials,
+            set_auto_refresh,
+            refresh_now
+        ])
         .setup(|app| {
             // Initialize Stronghold with argon2 key derivation
             let salt_path = app
@@ -335,6 +512,20 @@ pub fn run() {
             app.handle().plugin(
                 tauri_plugin_stronghold::Builder::with_argon2(&salt_path).build(),
             )?;
+
+            // Create app state with watch channel for restart signals
+            let (restart_tx, _) = watch::channel(());
+            let state = Arc::new(AppState {
+                config: Mutex::new(AutoRefreshConfig::default()),
+                restart_tx,
+            });
+
+            // Manage state
+            app.manage(state.clone());
+
+            // Spawn auto-refresh loop
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(auto_refresh_loop(app_handle, state));
 
             // Create tray (required by NSPopover plugin which looks up tray by ID "main")
             create_tray(app.handle())?;

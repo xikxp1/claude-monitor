@@ -66,11 +66,11 @@
   let orgIdInput = $state("");
   let tokenInput = $state("");
 
-  // Auto-refresh state
+  // Auto-refresh state (managed by backend, frontend just displays)
   let lastUpdateTime: Date | null = $state(null);
-  let secondsUntilNextUpdate = $state(0);
-  let autoRefreshInterval: ReturnType<typeof setInterval> | null = null;
+  let nextRefreshAt: number | null = $state(null); // Unix timestamp in ms
   let countdownInterval: ReturnType<typeof setInterval> | null = null;
+  let secondsUntilNextUpdate = $state(0);
 
   // Auto-start state
   let autostartEnabled = $state(false);
@@ -90,7 +90,7 @@
     defaults: {},
   });
 
-  let unlistenFn: UnlistenFn | null = null;
+  let unlistenFns: UnlistenFn[] = [];
 
   function getUsageColor(utilization: number): string {
     if (utilization >= 90) return "red";
@@ -142,33 +142,21 @@
     return `${secs}s`;
   }
 
-  function startAutoRefresh() {
-    stopAutoRefresh();
+  function startCountdown() {
+    stopCountdown();
 
-    if (!settings.auto_refresh_enabled) {
-      secondsUntilNextUpdate = 0;
-      return;
-    }
-
-    const intervalMs = settings.refresh_interval_minutes * 60 * 1000;
-    secondsUntilNextUpdate = settings.refresh_interval_minutes * 60;
-
-    // Countdown timer (every second)
+    // Update countdown every second based on nextRefreshAt
     countdownInterval = setInterval(() => {
-      secondsUntilNextUpdate = Math.max(0, secondsUntilNextUpdate - 1);
+      if (nextRefreshAt && settings.auto_refresh_enabled) {
+        const remaining = Math.max(0, Math.floor((nextRefreshAt - Date.now()) / 1000));
+        secondsUntilNextUpdate = remaining;
+      } else {
+        secondsUntilNextUpdate = 0;
+      }
     }, 1000);
-
-    // Auto-refresh timer
-    autoRefreshInterval = setInterval(() => {
-      fetchUsage();
-    }, intervalMs);
   }
 
-  function stopAutoRefresh() {
-    if (autoRefreshInterval) {
-      clearInterval(autoRefreshInterval);
-      autoRefreshInterval = null;
-    }
+  function stopCountdown() {
     if (countdownInterval) {
       clearInterval(countdownInterval);
       countdownInterval = null;
@@ -184,14 +172,61 @@
     initApp();
 
     return () => {
-      if (unlistenFn) {
-        unlistenFn();
+      for (const unlisten of unlistenFns) {
+        unlisten();
       }
-      stopAutoRefresh();
+      stopCountdown();
     };
   });
 
   async function initApp() {
+    // Set up event listeners for backend events
+    unlistenFns.push(
+      await listen<{ usage: UsageData; nextRefreshAt: number | null }>(
+        "usage-updated",
+        async (event) => {
+          const { usage, nextRefreshAt: nextAt } = event.payload;
+          usageData = usage;
+          lastUpdateTime = new Date();
+          nextRefreshAt = nextAt;
+          error = null;
+          loading = false;
+
+          // Save usage snapshot for analytics
+          try {
+            await saveUsageSnapshot(usage);
+          } catch (e) {
+            console.error("Failed to save usage snapshot:", e);
+          }
+
+          // Check for usage resets and clear notification state if needed
+          notificationState = resetNotificationStateIfNeeded(
+            usage,
+            notificationState,
+          );
+
+          // Process notifications
+          const newNotificationState = await processNotifications(
+            usage,
+            notificationSettings,
+            notificationState,
+          );
+
+          if (newNotificationState !== notificationState) {
+            notificationState = newNotificationState;
+            await store.set("notification_state", notificationState);
+          }
+        },
+      ),
+    );
+
+    unlistenFns.push(
+      await listen<{ error: string }>("usage-error", (event) => {
+        error = event.payload.error;
+        loading = false;
+      }),
+    );
+
     // Load credentials from secure storage (Stronghold)
     try {
       const credentials = await getCredentials();
@@ -237,13 +272,18 @@
       autostartEnabled = false;
     }
 
-    if (settings.organization_id && settings.session_token) {
-      await fetchUsage();
-    }
-
-    unlistenFn = await listen("refresh-usage", () => {
-      fetchUsage();
+    // Send credentials and settings to backend to start auto-refresh
+    await invoke("set_credentials", {
+      orgId: settings.organization_id,
+      sessionToken: settings.session_token,
     });
+    await invoke("set_auto_refresh", {
+      enabled: settings.auto_refresh_enabled,
+      intervalMinutes: settings.refresh_interval_minutes,
+    });
+
+    // Start countdown timer
+    startCountdown();
   }
 
   async function saveSettings() {
@@ -260,11 +300,15 @@
         session_token: tokenInput,
       };
 
+      // Send credentials to backend (this will trigger auto-refresh)
+      await invoke("set_credentials", {
+        orgId: orgIdInput,
+        sessionToken: tokenInput,
+      });
+
       showSettings = false;
-      await fetchUsage();
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to save settings";
-    } finally {
       loading = false;
     }
   }
@@ -286,13 +330,11 @@
     await store.set("auto_refresh_enabled", autoRefreshEnabled);
     await store.set("refresh_interval_minutes", refreshIntervalMinutes);
 
-    // Restart or stop auto-refresh based on new settings
-    if (autoRefreshEnabled && isConfigured && usageData) {
-      startAutoRefresh();
-    } else {
-      stopAutoRefresh();
-      secondsUntilNextUpdate = 0;
-    }
+    // Send settings to backend (this will restart the auto-refresh loop)
+    await invoke("set_auto_refresh", {
+      enabled: autoRefreshEnabled,
+      intervalMinutes: refreshIntervalMinutes,
+    });
   }
 
   async function toggleAutostart(enabled: boolean) {
@@ -308,7 +350,7 @@
     }
   }
 
-  async function fetchUsage() {
+  async function refreshNow() {
     if (!settings.organization_id || !settings.session_token) {
       return;
     }
@@ -316,51 +358,8 @@
     loading = true;
     error = null;
 
-    try {
-      const newUsageData = await invoke<UsageData>("get_usage", {
-        orgId: settings.organization_id,
-        sessionToken: settings.session_token,
-      });
-
-      usageData = newUsageData;
-      lastUpdateTime = new Date();
-
-      // Update tray tooltip with usage data
-      await invoke("update_tray_tooltip", { usage: newUsageData });
-
-      // Save usage snapshot for analytics
-      try {
-        await saveUsageSnapshot(newUsageData);
-      } catch (e) {
-        console.error("Failed to save usage snapshot:", e);
-      }
-
-      // Check for usage resets and clear notification state if needed
-      notificationState = resetNotificationStateIfNeeded(
-        newUsageData,
-        notificationState,
-      );
-
-      // Process notifications
-      const newNotificationState = await processNotifications(
-        newUsageData,
-        notificationSettings,
-        notificationState,
-      );
-
-      if (newNotificationState !== notificationState) {
-        notificationState = newNotificationState;
-        await store.set("notification_state", notificationState);
-      }
-
-      // Restart auto-refresh timer
-      startAutoRefresh();
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-      usageData = null;
-    } finally {
-      loading = false;
-    }
+    // Trigger refresh via backend - it will emit usage-updated or usage-error event
+    await invoke("refresh_now");
   }
 
   async function loadAnalytics() {
@@ -386,8 +385,6 @@
   }
 
   async function clearSettings() {
-    stopAutoRefresh();
-
     // Delete credentials from secure storage
     await deleteCredentials();
     resetSecureStorage();
@@ -405,12 +402,16 @@
     tokenInput = "";
     usageData = null;
     lastUpdateTime = null;
+    nextRefreshAt = null;
     notificationSettings = getDefaultNotificationSettings();
     notificationState = getDefaultNotificationState();
     showSettings = false;
 
-    // Reset tray tooltip
-    await invoke("update_tray_tooltip", { usage: null });
+    // Clear credentials in backend (this stops auto-refresh)
+    await invoke("set_credentials", {
+      orgId: null,
+      sessionToken: null,
+    });
   }
 </script>
 
@@ -669,7 +670,7 @@
               <span class="next-update disabled">Auto-refresh off</span>
             {/if}
           </div>
-          <button class="refresh-btn" onclick={fetchUsage} disabled={loading}>
+          <button class="refresh-btn" onclick={refreshNow} disabled={loading}>
             {loading ? "Loading..." : "Refresh"}
           </button>
         </div>
@@ -679,7 +680,7 @@
         {:else if error}
           <div class="error">
             <p>{error}</p>
-            <button onclick={fetchUsage}>Retry</button>
+            <button onclick={refreshNow}>Retry</button>
           </div>
         {:else if usageData}
           <div class="usage-grid">

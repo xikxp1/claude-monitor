@@ -135,23 +135,35 @@ Complete implementation plan for Claude Monitor.
 - [x] Comma-separated input for custom thresholds
 - [x] Real-time save on change
 
-### Phase 5: Auto-Refresh
+### Phase 5: Auto-Refresh (Backend-Driven)
 
-#### 5.1 Auto-Refresh Timer
-- [x] Implement background timer in frontend (setInterval)
-- [x] Use configured refresh interval from settings (default: 5 minutes)
-- [x] Restart timer after each successful fetch
+#### 5.1 Backend Auto-Refresh Loop
+- [x] Implement background timer in Rust using `tokio::spawn` and `tokio::time::interval`
+- [x] Use `watch` channel for restart signals when settings change
+- [x] Store configuration in `Mutex<AutoRefreshConfig>` (credentials, interval, enabled)
+- [x] Emit `usage-updated` event with usage data and next refresh timestamp
+- [x] Emit `usage-error` event on fetch failures
+- [x] Update tray tooltip automatically on fetch
+
+#### 5.2 Tauri Commands
+- [x] `set_credentials(org_id, session_token)` - Update credentials and restart loop
+- [x] `set_auto_refresh(enabled, interval_minutes)` - Update settings and restart loop
+- [x] `refresh_now()` - Trigger immediate fetch and reset timer
+
+#### 5.3 Frontend Event Handling
+- [x] Listen for `usage-updated` event to receive usage data
+- [x] Listen for `usage-error` event to display errors
+- [x] Calculate countdown from `nextRefreshAt` timestamp
 - [x] Display last update time ("Updated: Just now", "1 min ago", etc.)
 - [x] Display countdown to next update ("Next: 4m 32s")
-- [x] Clean up timers on component unmount
 
-#### 5.2 Auto-Refresh Settings
+#### 5.4 Auto-Refresh Settings UI
 - [x] Add "General" tab to settings page
 - [x] Enable/disable auto-refresh toggle
 - [x] Refresh interval dropdown (1, 2, 5, 10, 15, 30 minutes)
 - [x] Persist settings to store
 - [x] Show "Auto-refresh off" when disabled
-- [x] Immediately apply settings changes
+- [x] Send settings to backend via `set_auto_refresh` command
 
 ### Phase 6: Auto-Start
 
@@ -365,6 +377,40 @@ claude-monitor/
 - Trait names: `AppExt`, `WindowExt` (not `AppHandleExt`, `WebviewWindowExt`)
 - Plugin must be initialized with `.plugin(tauri_plugin_nspopover::init())`
 - Permissions: `nspopover:allow-show-popover`, `nspopover:allow-hide-popover`, `nspopover:allow-is-popover-shown`
+
+### Backend Auto-Refresh Architecture
+The auto-refresh system is implemented in the Rust backend for reliability:
+
+**State Management:**
+```rust
+pub struct AppState {
+    pub config: Mutex<AutoRefreshConfig>,  // Credentials + settings
+    pub restart_tx: watch::Sender<()>,     // Signal to restart loop
+}
+```
+
+**Event Flow:**
+```
+Frontend                          Backend (Rust)
+─────────────────────────────────────────────────────
+                                  App starts → spawns auto_refresh_loop
+                                  Loop waits for credentials
+
+invoke("set_credentials")     →   Updates config, sends restart signal
+                                  Loop fetches immediately, starts interval
+
+                              ←   emit("usage-updated", { usage, nextRefreshAt })
+                              ←   emit("usage-error", { error })
+
+invoke("set_auto_refresh")    →   Updates interval/enabled, restarts loop
+invoke("refresh_now")         →   Triggers immediate fetch, resets timer
+```
+
+**Benefits over frontend setInterval:**
+- Survives window hide/show and webview refreshes
+- More reliable timing via tokio runtime
+- Centralized error handling and retry logic
+- Tray tooltip updates happen automatically
 
 ### Notification System
 - Two notification types that can be combined:
