@@ -15,10 +15,11 @@
         "title": "Claude Monitor",
         "width": 400,
         "height": 500,
-        "resizable": true,
-        "minWidth": 350,
-        "minHeight": 400,
-        "center": true
+        "resizable": false,
+        "visible": false,
+        "skipTaskbar": true,
+        "decorations": false,
+        "alwaysOnTop": true
       }
     ],
     "security": {

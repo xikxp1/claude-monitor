@@ -256,18 +256,24 @@ async function clearSettings() {
 </main>
 
 <style>
+  :global(html),
+  :global(body) {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: transparent;
+  }
+
   :root {
     font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     font-size: 14px;
     line-height: 1.5;
     color: #1a1a1a;
-    background-color: #fafafa;
   }
 
   @media (prefers-color-scheme: dark) {
     :root {
       color: #f0f0f0;
-      background-color: #1a1a1a;
     }
   }
 
@@ -276,6 +282,18 @@ async function clearSettings() {
     padding: 16px;
     min-height: 100vh;
     box-sizing: border-box;
+    background-color: #fafafa;
+    border-radius: 12px;
+    border: 1px solid #d0d0d0;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .container {
+      background-color: #1a1a1a;
+      border-color: #333;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+    }
   }
 
   header {

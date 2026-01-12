@@ -5,6 +5,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, Runtime,
 };
+use tauri_plugin_positioner::{on_tray_event, Position, WindowExt};
 use thiserror::Error;
 
 // ============================================================================
@@ -152,17 +153,22 @@ fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
+            let app = tray.app_handle();
+            // Track tray position for positioner plugin
+            on_tray_event(app, &event);
+
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
                 ..
             } = event
             {
-                let app = tray.app_handle();
                 if let Some(window) = app.get_webview_window("main") {
                     if window.is_visible().unwrap_or(false) {
                         let _ = window.hide();
                     } else {
+                        // Position window under tray icon
+                        let _ = window.move_window(Position::TrayCenter);
                         let _ = window.show();
                         let _ = window.set_focus();
                     }
@@ -183,19 +189,24 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_positioner::init())
         .invoke_handler(tauri::generate_handler![get_usage, get_default_settings])
         .setup(|app| {
             create_tray(app.handle())?;
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Hide window instead of closing on macOS
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                #[cfg(target_os = "macos")]
-                {
+            match event {
+                // Hide window when it loses focus
+                tauri::WindowEvent::Focused(false) => {
+                    let _ = window.hide();
+                }
+                // Hide window instead of closing
+                tauri::WindowEvent::CloseRequested { api, .. } => {
                     let _ = window.hide();
                     api.prevent_close();
                 }
+                _ => {}
             }
         })
         .run(tauri::generate_context!())
