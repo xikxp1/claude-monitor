@@ -250,19 +250,49 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
 
 ## Next Steps (Prioritized)
 
-### Immediate (High Priority)
+### Immediate (Critical - Security)
 
-#### Error State Improvements
+#### Secure Storage Improvements
+- [ ] Remove hardcoded Stronghold password - derive from system/user auth
+- [ ] Add session token format validation before HTTP header injection
+- [ ] Keep credentials server-side only (don't expose in frontend state)
+
+### Immediate (High Priority - Stability)
+
+#### Error Handling
+- [ ] Add try-catch to all Tauri command invokes (`saveNotificationSettings`, `saveGeneralSettings`, `refreshNow`)
 - [ ] Better error messages for common failures
 - [ ] Network offline indicator
 - [ ] Session expired prompt with re-login option
+- [ ] Add exponential backoff on 429 rate limit errors
+
+#### State Management Fixes
+- [ ] Fix stale closure in event listeners (access settings fresh in handler)
+- [ ] Fix race condition in notification state sync
+- [ ] Add debouncing to settings form changes
+
+#### UX Improvements
+- [ ] Show loading state during initial credential setup
+- [ ] Add error feedback (toast/snackbar) for failed settings saves
+- [ ] Validate utilization percentages (0-100 range) before display
 
 #### Tray Menu Updates
 - [ ] Add separator between menu items
 - [x] Show usage percentage in tray tooltip
 - [ ] Add "Open Settings" menu item
 
-### Short Term (Medium Priority)
+### Short Term (Medium Priority - Code Quality)
+
+#### Code Organization
+- [ ] Break `+page.svelte` into smaller composables (useRefreshLogic, useAnalyticsLogic, useNotificationLogic)
+- [ ] Centralize color/label constants (currently duplicated in chart, CSS, components)
+- [ ] Remove duplicated notification switch statements - use `Record<UsageType, number>`
+- [ ] Add input validation for settings (e.g., `refresh_interval_minutes` bounds)
+
+#### Type Safety
+- [ ] Add ISO8601 validation for `resets_at` timestamps
+- [ ] Use discriminated unions for notification type safety
+- [ ] Consider codegen for shared Rust/TypeScript types
 
 #### Custom Tray Icons
 - [ ] Design tray icon assets (16x16, 32x32, @2x)
@@ -277,9 +307,19 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
 - [x] Secure token storage (moved to Phase 7)
 - [ ] Clear credentials button with confirmation
 
+#### Chart Enhancements
+- [ ] Hover tooltips with exact values
+- [ ] Export data option (CSV)
+
 ---
 
-### Long Term (Lower Priority)
+### Long Term (Lower Priority - Performance & Distribution)
+
+#### Performance Optimizations
+- [ ] Pause countdown timer when window hidden (reduce CPU wakeups)
+- [ ] Combine 3 database queries into 1 in `getUsageStats()`
+- [ ] Add pagination/downsampling for analytics with large datasets
+- [ ] Conditional plugin loading for platform-specific features
 
 #### Distribution
 - [x] App icon design (all sizes)
