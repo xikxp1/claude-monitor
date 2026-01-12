@@ -4,32 +4,39 @@ import { appDataDir } from "@tauri-apps/api/path";
 const VAULT_NAME = "credentials";
 const STRONGHOLD_PASSWORD = "claude-monitor-secure-storage";
 
-let stronghold: Stronghold | null = null;
-let client: Client | null = null;
+// Singleton promise to prevent race conditions during initialization
+let initPromise: Promise<{ stronghold: Stronghold; client: Client }> | null = null;
 
-async function getStronghold(): Promise<Stronghold> {
-  if (stronghold) return stronghold;
-
+async function initialize(): Promise<{ stronghold: Stronghold; client: Client }> {
   const appDir = await appDataDir();
   const strongholdPath = `${appDir}/credentials.stronghold`;
 
-  stronghold = await Stronghold.load(strongholdPath, STRONGHOLD_PASSWORD);
-  return stronghold;
-}
+  const stronghold = await Stronghold.load(strongholdPath, STRONGHOLD_PASSWORD);
 
-async function getClient(): Promise<Client> {
-  if (client) return client;
-
-  const sh = await getStronghold();
-
+  let client: Client;
   try {
-    client = await sh.loadClient(VAULT_NAME);
+    client = await stronghold.loadClient(VAULT_NAME);
   } catch {
     // Client doesn't exist, create it
-    client = await sh.createClient(VAULT_NAME);
+    client = await stronghold.createClient(VAULT_NAME);
   }
 
-  return client;
+  return { stronghold, client };
+}
+
+function getInitialized(): Promise<{ stronghold: Stronghold; client: Client }> {
+  if (!initPromise) {
+    initPromise = initialize();
+  }
+  return initPromise;
+}
+
+// Call this early to start initialization in the background
+export function initSecureStorage(): void {
+  getInitialized().catch((e) => {
+    console.error("Failed to initialize secure storage:", e);
+    initPromise = null; // Allow retry
+  });
 }
 
 export interface Credentials {
@@ -41,20 +48,19 @@ export async function saveCredentials(
   organizationId: string,
   sessionToken: string,
 ): Promise<void> {
-  const cl = await getClient();
-  const store = cl.getStore();
+  const { stronghold, client } = await getInitialized();
+  const store = client.getStore();
 
   await store.insert("organization_id", Array.from(new TextEncoder().encode(organizationId)));
   await store.insert("session_token", Array.from(new TextEncoder().encode(sessionToken)));
 
-  const sh = await getStronghold();
-  await sh.save();
+  await stronghold.save();
 }
 
 export async function getCredentials(): Promise<Credentials> {
   try {
-    const cl = await getClient();
-    const store = cl.getStore();
+    const { client } = await getInitialized();
+    const store = client.getStore();
 
     const orgIdBytes = await store.get("organization_id");
     const tokenBytes = await store.get("session_token");
@@ -73,8 +79,8 @@ export async function getCredentials(): Promise<Credentials> {
 
 export async function deleteCredentials(): Promise<void> {
   try {
-    const cl = await getClient();
-    const store = cl.getStore();
+    const { stronghold, client } = await getInitialized();
+    const store = client.getStore();
 
     try {
       await store.remove("organization_id");
@@ -87,9 +93,13 @@ export async function deleteCredentials(): Promise<void> {
       // Ignore if not found
     }
 
-    const sh = await getStronghold();
-    await sh.save();
+    await stronghold.save();
   } catch {
     // Ignore errors during deletion
   }
+}
+
+// Reset for clear settings - will reinitialize on next access
+export function resetSecureStorage(): void {
+  initPromise = null;
 }

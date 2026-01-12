@@ -330,5 +330,6 @@ The Claude usage API returns:
 - Key derivation using built-in **argon2** via `Builder::with_argon2(&salt_path)`
 - Salt stored in `salt.txt` in app local data directory
 - Plugin initialized in setup function to access app paths
-- `secureStorage.ts` utility provides: `saveCredentials()`, `getCredentials()`, `deleteCredentials()`
+- `secureStorage.ts` utility provides: `saveCredentials()`, `getCredentials()`, `deleteCredentials()`, `initSecureStorage()`, `resetSecureStorage()`
 - Organization ID and session token stored separately in Stronghold store
+- **Performance optimization**: Uses singleton promise pattern to handle slow argon2 initialization; call `initSecureStorage()` early in app startup

@@ -24,6 +24,8 @@ import {
   saveCredentials,
   getCredentials,
   deleteCredentials,
+  initSecureStorage,
+  resetSecureStorage,
 } from "$lib/secureStorage";
 
 let settings: Settings = $state({
@@ -33,6 +35,7 @@ let settings: Settings = $state({
   auto_refresh_enabled: true,
 });
 let usageData: UsageData | null = $state(null);
+let initializing = $state(true);
 let loading = $state(false);
 let error: string | null = $state(null);
 let showSettings = $state(false);
@@ -144,6 +147,9 @@ function stopAutoRefresh() {
 }
 
 onMount(() => {
+  // Start secure storage initialization early (argon2 is slow)
+  initSecureStorage();
+
   initApp();
 
   return () => {
@@ -164,6 +170,8 @@ async function initApp() {
     tokenInput = credentials.sessionToken ?? "";
   } catch (e) {
     console.error("Failed to load credentials:", e);
+  } finally {
+    initializing = false;
   }
 
   // Load general settings from store
@@ -310,6 +318,7 @@ async function clearSettings() {
 
   // Delete credentials from secure storage
   await deleteCredentials();
+  resetSecureStorage();
 
   // Clear other settings from store
   await store.clear();
@@ -353,16 +362,22 @@ async function clearSettings() {
 {/snippet}
 
 <main class="container">
-  <header>
-    <h1><span class="claude">Claude</span> <span class="monitor">Monitor</span></h1>
-    {#if isConfigured}
-      <button class="header-btn" onclick={() => (showSettings = !showSettings)}>
-        {showSettings ? "Dashboard" : "Settings"}
-      </button>
-    {/if}
-  </header>
+  {#if initializing}
+    <div class="init-loading">
+      <div class="spinner"></div>
+      <span>Loading...</span>
+    </div>
+  {:else}
+    <header>
+      <h1><span class="claude">Claude</span> <span class="monitor">Monitor</span></h1>
+      {#if isConfigured}
+        <button class="header-btn" onclick={() => (showSettings = !showSettings)}>
+          {showSettings ? "Dashboard" : "Settings"}
+        </button>
+      {/if}
+    </header>
 
-  {#if !isConfigured || showSettings}
+    {#if !isConfigured || showSettings}
     <section class="setup">
       <h2>{isConfigured ? "Settings" : "Setup"}</h2>
 
@@ -519,6 +534,7 @@ async function clearSettings() {
         <div class="empty">No usage data available</div>
       {/if}
     </section>
+  {/if}
   {/if}
 </main>
 
@@ -1017,5 +1033,44 @@ async function clearSettings() {
     font-size: 1.2rem;
     font-weight: 600;
     text-align: center;
+  }
+
+  .init-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    gap: 16px;
+    color: #666;
+    font-size: 0.9rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .init-loading {
+      color: #999;
+    }
+  }
+
+  .spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid #e5e5e5;
+    border-top-color: #7c3aed;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .spinner {
+      border-color: #3a3a3a;
+      border-top-color: #7c3aed;
+    }
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 </style>
