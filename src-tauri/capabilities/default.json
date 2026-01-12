@@ -14,6 +14,9 @@
     "notification:allow-notify",
     "nspopover:allow-show-popover",
     "nspopover:allow-hide-popover",
-    "nspopover:allow-is-popover-shown"
+    "nspopover:allow-is-popover-shown",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
   ]
 }

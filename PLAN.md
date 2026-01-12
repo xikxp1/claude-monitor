@@ -153,6 +153,16 @@ Complete implementation plan for Claude Monitor.
 - [x] Show "Auto-refresh off" when disabled
 - [x] Immediately apply settings changes
 
+### Phase 6: Auto-Start
+
+#### 6.1 Auto-Start at Login
+- [x] Add `tauri-plugin-autostart` (Rust + npm)
+- [x] Add permissions to capabilities (enable, disable, is-enabled)
+- [x] Initialize plugin with MacosLauncher::LaunchAgent
+- [x] "Start at login" toggle in General settings
+- [x] Load current autostart state on init
+- [x] Enable/disable autostart on toggle
+
 ---
 
 ## Next Steps (Prioritized)
@@ -192,11 +202,6 @@ Complete implementation plan for Claude Monitor.
 
 ### Long Term (Lower Priority)
 
-#### Auto-Start
-- [ ] Add `tauri-plugin-autostart`
-- [ ] Configure based on user preference
-- [ ] Start minimized to tray
-
 #### Charts & Analytics
 - [ ] Add lightweight charting library
 - [ ] Usage trend over time
@@ -222,6 +227,7 @@ tauri-plugin-store = "2"
 tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 tauri-plugin-nspopover = { git = "https://github.com/freethinkel/tauri-nspopover-plugin.git", version = "4.0.0" }
 tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
@@ -235,6 +241,7 @@ chrono = { version = "0.4", features = ["serde"] }
 {
   "dependencies": {
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-autostart": "^2",
     "@tauri-apps/plugin-notification": "^2",
     "@tauri-apps/plugin-store": "^2"
   }

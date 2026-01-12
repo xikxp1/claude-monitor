@@ -2,6 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { LazyStore } from "@tauri-apps/plugin-store";
+import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { onMount } from "svelte";
 import type {
   Settings,
@@ -45,6 +46,9 @@ let lastUpdateTime: Date | null = $state(null);
 let secondsUntilNextUpdate = $state(0);
 let autoRefreshInterval: ReturnType<typeof setInterval> | null = null;
 let countdownInterval: ReturnType<typeof setInterval> | null = null;
+
+// Auto-start state
+let autostartEnabled = $state(false);
 
 const isConfigured = $derived(settings.organization_id !== null && settings.session_token !== null);
 
@@ -174,6 +178,13 @@ async function initApp() {
     notificationState = savedNotificationState;
   }
 
+  // Load autostart state
+  try {
+    autostartEnabled = await isAutostartEnabled();
+  } catch {
+    autostartEnabled = false;
+  }
+
   if (settings.organization_id && settings.session_token) {
     await fetchUsage();
   }
@@ -227,6 +238,19 @@ async function saveGeneralSettings(autoRefreshEnabled: boolean, refreshIntervalM
   } else {
     stopAutoRefresh();
     secondsUntilNextUpdate = 0;
+  }
+}
+
+async function toggleAutostart(enabled: boolean) {
+  try {
+    if (enabled) {
+      await enableAutostart();
+    } else {
+      await disableAutostart();
+    }
+    autostartEnabled = enabled;
+  } catch (e) {
+    console.error("Failed to toggle autostart:", e);
   }
 }
 
@@ -433,6 +457,15 @@ async function clearSettings() {
               </select>
             </label>
           {/if}
+
+          <label class="toggle-row">
+            <input
+              type="checkbox"
+              checked={autostartEnabled}
+              onchange={(e) => toggleAutostart(e.currentTarget.checked)}
+            />
+            <span>Start at login</span>
+          </label>
         </div>
       {/if}
     </section>
