@@ -3,6 +3,7 @@ mod auto_refresh;
 mod commands;
 mod credentials;
 mod error;
+mod history;
 mod notifications;
 mod tray;
 mod types;
@@ -10,8 +11,9 @@ mod validation;
 
 use auto_refresh::auto_refresh_loop;
 use commands::{
-    clear_credentials, get_default_settings, get_is_configured, get_usage, refresh_now,
-    save_credentials, set_auto_refresh, set_notification_settings,
+    cleanup_history, clear_credentials, get_default_settings, get_is_configured, get_usage,
+    get_usage_history_by_range, get_usage_stats, refresh_now, save_credentials, set_auto_refresh,
+    set_notification_settings,
 };
 use tray::create_tray;
 use types::{AppState, AutoRefreshConfig, NotificationSettings, NotificationState};
@@ -32,7 +34,6 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
-        .plugin(tauri_plugin_sql::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_usage,
             get_default_settings,
@@ -41,7 +42,10 @@ pub fn run() {
             clear_credentials,
             set_auto_refresh,
             refresh_now,
-            set_notification_settings
+            set_notification_settings,
+            get_usage_history_by_range,
+            get_usage_stats,
+            cleanup_history
         ])
         .setup(|app| {
             use tauri::Manager;
@@ -81,6 +85,11 @@ pub fn run() {
                 }
                 Err(_) => NotificationState::default(),
             };
+
+            // Initialize history database
+            if let Err(e) = history::init_database(app.handle()) {
+                eprintln!("Failed to initialize history database: {}", e);
+            }
 
             // Create app state with watch channel for restart signals
             let (restart_tx, _) = watch::channel(());

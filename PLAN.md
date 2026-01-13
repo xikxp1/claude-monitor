@@ -204,20 +204,19 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
 
 #### 8.1 Dependencies & Setup
 - [x] Add d3-scale for chart scaling functions
-- [x] Add `tauri-plugin-sql` for SQLite storage (better for time-series queries)
-- [x] Add SQL plugin permissions to capabilities
-- [x] Initialize SQL plugin in Rust backend
+- [x] Add `rusqlite` for SQLite storage (Rust backend)
+- [x] Initialize database in Rust backend setup
 
-#### 8.2 Historical Data Storage
-- [x] Design and implement database schema with usage_history table
-- [x] Create `historyStorage.ts` utility module:
-  - `saveUsageSnapshot(usage: UsageData)` - Store current usage with timestamp
-  - `getUsageHistory(from: Date, to: Date)` - Query historical data
-  - `getUsageHistoryByRange(range: TimeRange)` - Query by preset time range
-  - `getLatestSnapshots(count: number)` - Get recent N snapshots
-  - `getUsageStats(range: TimeRange)` - Get statistics (avg, max) for time range
-  - `cleanupOldData(retentionDays: number)` - Remove data older than retention period
-- [x] Auto-save usage snapshot on each successful fetch
+#### 8.2 Historical Data Storage (Backend-Driven)
+- [x] Design and implement database schema in `history.rs`
+- [x] Create Rust functions for storage:
+  - `save_usage_snapshot()` - Store current usage with timestamp (called in auto_refresh)
+  - `get_usage_history_by_range()` - Query by preset time range
+  - `get_usage_stats()` - Get statistics (current, change, velocity) for time range
+  - `cleanup_old_data()` - Remove data older than retention period
+- [x] Create Tauri commands for frontend access:
+  - `get_usage_history_by_range` / `get_usage_stats` / `cleanup_history`
+- [x] Auto-save usage snapshot on each successful fetch (backend)
 - [x] Add retention period setting in General settings
 
 #### 8.3 Analytics Components
@@ -369,13 +368,13 @@ tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 tauri-plugin-nspopover = { git = "https://github.com/freethinkel/tauri-nspopover-plugin.git", version = "4.0.0" }
 tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"
-tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }
+rusqlite = { version = "0.38", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", features = ["json", "rustls"] }
 tokio = { version = "1", features = ["full"] }
-thiserror = "1"
+thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
 ```
 
@@ -387,7 +386,6 @@ chrono = { version = "0.4", features = ["serde"] }
     "@tauri-apps/plugin-autostart": "^2",
     "@tauri-apps/plugin-notification": "^2",
     "@tauri-apps/plugin-store": "^2",
-    "@tauri-apps/plugin-sql": "^2",
     "d3-scale": "^4"
   },
   "devDependencies": {
@@ -416,7 +414,7 @@ claude-monitor/
 │   │   ├── utils/                            # Pure utility functions
 │   │   │   ├── index.ts                      # Re-exports
 │   │   │   └── formatting.ts                 # Date/time/color formatting
-│   │   ├── historyStorage.ts                 # Phase 8: SQLite history storage
+│   │   ├── historyStorage.ts                 # Frontend API for history (calls Rust)
 │   │   └── types.ts                          # TypeScript types
 │   ├── routes/
 │   │   └── +page.svelte                      # Main dashboard (UI only, ~400 lines)
@@ -427,6 +425,7 @@ claude-monitor/
 │   │   ├── auto_refresh.rs                   # Background refresh loop
 │   │   ├── commands.rs                       # Tauri commands
 │   │   ├── error.rs                          # AppError enum
+│   │   ├── history.rs                        # SQLite history storage (rusqlite)
 │   │   ├── lib.rs                            # Module re-exports and app entry point
 │   │   ├── main.rs                           # Entry point
 │   │   ├── credentials.rs                    # OS keychain storage (keyring)
@@ -553,15 +552,15 @@ The Claude usage API returns:
   - SVG-based, lightweight (~12KB)
   - Supports line, area, bar, scatter, and custom visualizations
   - Built-in responsive scaling
-- **Data Storage**: SQLite via `tauri-plugin-sql`
-  - Better for time-series queries than JSON store
-  - Supports aggregation (AVG, MAX, MIN) for statistics
+- **Data Storage**: SQLite via `rusqlite` (Rust backend)
+  - Backend saves snapshots automatically after each fetch
+  - Frontend queries via Tauri commands (`get_usage_history_by_range`, `get_usage_stats`)
   - Efficient date range queries with indexed timestamp column
   - Database file: `usage_history.db` in app data directory
-- **Data Sampling Strategy**:
-  - Store one snapshot per fetch (every 1-30 min based on refresh interval)
-  - For charts, downsample to reasonable points (e.g., 100-200 points max)
-  - Use SQL aggregation for longer time ranges
+- **Tauri Commands**:
+  - `get_usage_history_by_range(range)` - Get history for time preset ("1h", "6h", "24h", "7d", "30d")
+  - `get_usage_stats(range)` - Get statistics (current, change, velocity) for time range
+  - `cleanup_history(retentionDays)` - Delete old records
 - **Color Palette** (consistent with usage cards):
   - 5 Hour: `#3b82f6` (Blue)
   - 7 Day: `#8b5cf6` (Purple)

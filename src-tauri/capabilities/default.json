@@ -17,11 +17,6 @@
     "nspopover:allow-is-popover-shown",
     "autostart:allow-enable",
     "autostart:allow-disable",
-    "autostart:allow-is-enabled",
-    "sql:default",
-    "sql:allow-load",
-    "sql:allow-execute",
-    "sql:allow-select",
-    "sql:allow-close"
+    "autostart:allow-is-enabled"
   ]
 }

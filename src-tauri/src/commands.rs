@@ -2,6 +2,7 @@ use crate::api::fetch_usage_from_api;
 use crate::auto_refresh::do_fetch_and_emit;
 use crate::credentials;
 use crate::error::AppError;
+use crate::history::{self, UsageHistoryRecord, UsageStats};
 use crate::types::{AppState, NotificationSettings, Settings, UsageData};
 use crate::validation::{validate_org_id, validate_session_token};
 use std::sync::Arc;
@@ -109,4 +110,22 @@ pub async fn set_notification_settings(
     let mut notification_settings = state.notification_settings.lock().await;
     *notification_settings = settings;
     Ok(())
+}
+
+/// Get usage history by time range preset
+#[tauri::command]
+pub fn get_usage_history_by_range(range: String) -> Result<Vec<UsageHistoryRecord>, String> {
+    history::get_usage_history_by_range(&range).map_err(|e| e.to_string())
+}
+
+/// Get usage statistics for a time range
+#[tauri::command]
+pub fn get_usage_stats(range: String) -> Result<UsageStats, String> {
+    history::get_usage_stats(&range).map_err(|e| e.to_string())
+}
+
+/// Clean up old history data
+#[tauri::command]
+pub fn cleanup_history(retention_days: u32) -> Result<usize, String> {
+    history::cleanup_old_data(retention_days).map_err(|e| e.to_string())
 }

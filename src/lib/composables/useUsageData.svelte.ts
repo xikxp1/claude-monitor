@@ -4,7 +4,6 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { saveUsageSnapshot } from "$lib/historyStorage";
 import type { UsageData } from "$lib/types";
 
 export interface UsageDataCallbacks {
@@ -53,22 +52,14 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
     unlistenFns.push(
       await listen<{ usage: UsageData; nextRefreshAt: number | null }>(
         "usage-updated",
-        async (event) => {
+        (event) => {
           const { usage, nextRefreshAt: nextAt } = event.payload;
           usageData = usage;
           lastUpdateTime = new Date();
           nextRefreshAt = nextAt;
           callbacks.setError(null);
           callbacks.setLoading(false);
-
-          // Save usage snapshot for analytics
-          try {
-            await saveUsageSnapshot(usage);
-          } catch (e) {
-            console.error("Failed to save usage snapshot:", e);
-          }
-
-          // Note: Notifications are now processed by the Rust backend
+          // Usage snapshots and notifications are processed by the Rust backend
         },
       ),
     );

@@ -1,4 +1,5 @@
 use crate::api::fetch_usage_from_api;
+use crate::history::save_usage_snapshot;
 use crate::notifications::{process_notifications, reset_notification_state_if_needed};
 use crate::tray::update_tray_tooltip;
 use crate::types::{AppState, UsageErrorEvent, UsageUpdateEvent};
@@ -17,6 +18,11 @@ pub async fn do_fetch_and_emit(app: &tauri::AppHandle, state: &AppState, interva
             Ok(usage) => {
                 // Update tray tooltip
                 update_tray_tooltip(app, Some(&usage));
+
+                // Save usage snapshot for analytics
+                if let Err(e) = save_usage_snapshot(&usage) {
+                    eprintln!("Failed to save usage snapshot: {}", e);
+                }
 
                 // Process notifications
                 {
