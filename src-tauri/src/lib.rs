@@ -3,6 +3,7 @@ mod auto_refresh;
 mod commands;
 mod credentials;
 mod error;
+mod notifications;
 mod tray;
 mod types;
 mod validation;
@@ -10,12 +11,13 @@ mod validation;
 use auto_refresh::auto_refresh_loop;
 use commands::{
     clear_credentials, get_default_settings, get_is_configured, get_usage, refresh_now,
-    save_credentials, set_auto_refresh,
+    save_credentials, set_auto_refresh, set_notification_settings,
 };
 use tray::create_tray;
-use types::{AppState, AutoRefreshConfig};
+use types::{AppState, AutoRefreshConfig, NotificationSettings, NotificationState};
 
 use std::sync::Arc;
+use tauri_plugin_store::StoreExt;
 use tokio::sync::{watch, Mutex};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -38,7 +40,8 @@ pub fn run() {
             get_is_configured,
             clear_credentials,
             set_auto_refresh,
-            refresh_now
+            refresh_now,
+            set_notification_settings
         ])
         .setup(|app| {
             use tauri::Manager;
@@ -57,11 +60,35 @@ pub fn run() {
                 None => AutoRefreshConfig::default(),
             };
 
+            // Load notification settings from store
+            let notification_settings = match app.store("settings.json") {
+                Ok(store) => {
+                    store
+                        .get("notificationSettings")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok())
+                        .unwrap_or_default()
+                }
+                Err(_) => NotificationSettings::default(),
+            };
+
+            // Load notification state from store
+            let notification_state = match app.store("settings.json") {
+                Ok(store) => {
+                    store
+                        .get("notificationState")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok())
+                        .unwrap_or_default()
+                }
+                Err(_) => NotificationState::default(),
+            };
+
             // Create app state with watch channel for restart signals
             let (restart_tx, _) = watch::channel(());
             let state = Arc::new(AppState {
                 config: Mutex::new(initial_config),
                 restart_tx,
+                notification_settings: Mutex::new(notification_settings),
+                notification_state: Mutex::new(notification_state),
             });
 
             // Manage state

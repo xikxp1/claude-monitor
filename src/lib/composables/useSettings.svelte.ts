@@ -10,11 +10,8 @@ import {
 } from "@tauri-apps/plugin-autostart";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { cleanupOldData } from "$lib/historyStorage";
-import type { NotificationSettings, NotificationState } from "$lib/types";
-import {
-  getDefaultNotificationSettings,
-  getDefaultNotificationState,
-} from "$lib/types";
+import type { NotificationSettings } from "$lib/types";
+import { getDefaultNotificationSettings } from "$lib/types";
 
 export function useSettings() {
   const store = new LazyStore("settings.json", {
@@ -41,9 +38,6 @@ export function useSettings() {
   // Notification settings
   let notificationSettings: NotificationSettings = $state(
     getDefaultNotificationSettings(),
-  );
-  let notificationState: NotificationState = $state(
-    getDefaultNotificationState(),
   );
 
   // Loading/error state
@@ -77,11 +71,11 @@ export function useSettings() {
       notificationSettings = savedNotificationSettings;
     }
 
-    // Load notification state
-    const savedNotificationState =
-      await store.get<NotificationState>("notification_state");
-    if (savedNotificationState) {
-      notificationState = savedNotificationState;
+    // Sync notification settings to backend
+    try {
+      await invoke("set_notification_settings", { settings: notificationSettings });
+    } catch (e) {
+      console.error("Failed to sync notification settings to backend:", e);
     }
 
     // Load autostart state
@@ -150,18 +144,10 @@ export function useSettings() {
     notificationSettings = newSettings;
     try {
       await store.set("notification_settings", newSettings);
+      // Sync to backend for backend-driven notifications
+      await invoke("set_notification_settings", { settings: newSettings });
     } catch (e) {
       console.error("Failed to save notification settings:", e);
-    }
-  }
-
-  /**
-   * Update notification state (called after processing notifications)
-   */
-  async function updateNotificationState(newState: NotificationState) {
-    if (newState !== notificationState) {
-      notificationState = newState;
-      await store.set("notification_state", notificationState);
     }
   }
 
@@ -237,8 +223,10 @@ export function useSettings() {
       orgIdInput = "";
       tokenInput = "";
       notificationSettings = getDefaultNotificationSettings();
-      notificationState = getDefaultNotificationState();
       showSettings = false;
+
+      // Sync reset notification settings to backend
+      await invoke("set_notification_settings", { settings: notificationSettings });
     } catch (e) {
       console.error("Failed to clear settings:", e);
     }
@@ -309,12 +297,6 @@ export function useSettings() {
     get notificationSettings() {
       return notificationSettings;
     },
-    get notificationState() {
-      return notificationState;
-    },
-    set notificationState(value: NotificationState) {
-      notificationState = value;
-    },
 
     // Loading/error
     get loading() {
@@ -334,7 +316,6 @@ export function useSettings() {
     init,
     saveCredentials,
     saveNotifications,
-    updateNotificationState,
     saveGeneral,
     toggleAutostart,
     saveRetention,

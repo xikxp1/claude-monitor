@@ -104,28 +104,32 @@ Complete implementation plan for Claude Monitor.
 - [x] Loading states
 - [x] Popup-style container with rounded corners and shadow
 
-### Phase 4: Notifications
+### Phase 4: Notifications (Backend-Driven)
 
 #### 4.1 Notification System
 - [x] Add `tauri-plugin-notification` (Rust + npm)
-- [x] Define notification types:
-  ```typescript
-  interface NotificationRule {
-    interval_enabled: boolean;    // Enable "every X%" notifications
-    interval_percent: number;     // e.g., 10 for every 10%
-    threshold_enabled: boolean;   // Enable threshold notifications
-    thresholds: number[];         // e.g., [50, 80, 90]
+- [x] Define notification types in Rust (`types.rs`):
+  ```rust
+  struct NotificationRule {
+      interval_enabled: bool,
+      interval_percent: u32,
+      threshold_enabled: bool,
+      thresholds: Vec<u32>,
   }
   ```
 - [x] Separate rules for each usage type (5h, 7d, Sonnet, Opus)
 - [x] Global enable/disable toggle
 
-#### 4.2 Notification Logic
+#### 4.2 Notification Logic (Rust Backend)
+- [x] Create `notifications.rs` module with notification processing
 - [x] Interval notifications: Trigger at every X% (configurable: 5%, 10%, 15%, 20%, 25%)
 - [x] Threshold notifications: Trigger when crossing specific percentages
-- [x] Track notification state to avoid duplicates
+- [x] Track notification state in `AppState` to avoid duplicates
 - [x] Auto-reset notification state when usage resets (drops > 20%)
-- [x] Persist notification state across app restarts
+- [x] Load notification settings/state from store on startup
+- [x] Process notifications in `auto_refresh.rs` after each fetch
+- [x] Fire notifications via `tauri-plugin-notification` Rust API
+- [x] `set_notification_settings` command to sync frontend settings to backend
 
 #### 4.3 Settings UI
 - [x] Tabbed settings interface (Credentials | Notifications)
@@ -133,7 +137,7 @@ Complete implementation plan for Claude Monitor.
 - [x] Checkbox toggles for interval/threshold modes
 - [x] Dropdown for interval percentage
 - [x] Comma-separated input for custom thresholds
-- [x] Real-time save on change
+- [x] Real-time save on change (syncs to backend via command)
 
 ### Phase 5: Auto-Refresh (Backend-Driven)
 
@@ -304,8 +308,9 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
   - `validation.rs` - Input validation (validate_session_token, validate_org_id)
   - `credentials.rs` - OS keychain storage (keyring crate)
   - `api.rs` - HTTP client (fetch_usage_from_api)
+  - `notifications.rs` - Notification processing and firing
   - `tray.rs` - System tray creation and tooltip updates
-  - `auto_refresh.rs` - Background refresh loop
+  - `auto_refresh.rs` - Background refresh loop (includes notifications)
   - `commands.rs` - Tauri commands
 - [ ] Centralize color/label constants (currently duplicated in chart, CSS, components)
 - [ ] Remove duplicated notification switch statements - use `Record<UsageType, number>`
@@ -411,7 +416,6 @@ claude-monitor/
 │   │   ├── utils/                            # Pure utility functions
 │   │   │   ├── index.ts                      # Re-exports
 │   │   │   └── formatting.ts                 # Date/time/color formatting
-│   │   ├── notifications.ts                  # Notification logic
 │   │   ├── historyStorage.ts                 # Phase 8: SQLite history storage
 │   │   └── types.ts                          # TypeScript types
 │   ├── routes/
@@ -426,6 +430,7 @@ claude-monitor/
 │   │   ├── lib.rs                            # Module re-exports and app entry point
 │   │   ├── main.rs                           # Entry point
 │   │   ├── credentials.rs                    # OS keychain storage (keyring)
+│   │   ├── notifications.rs                  # Notification processing and firing
 │   │   ├── tray.rs                           # System tray creation and tooltip
 │   │   ├── types.rs                          # Data structures
 │   │   └── validation.rs                     # Input validation
@@ -458,8 +463,9 @@ The Rust backend (`src-tauri/src/`) is organized into focused modules:
 - `validation.rs` - Input sanitization (session token, org ID format validation)
 - `credentials.rs` - OS keychain storage via `keyring` crate (load/save/delete)
 - `api.rs` - HTTP client for Claude API
+- `notifications.rs` - Notification processing and firing
 - `tray.rs` - System tray creation and tooltip updates
-- `auto_refresh.rs` - Background refresh loop with tokio
+- `auto_refresh.rs` - Background refresh loop with tokio (includes notification processing)
 - `commands.rs` - Tauri command handlers
 - `lib.rs` - Module declarations, plugin setup, and app entry point
 

@@ -5,21 +5,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { saveUsageSnapshot } from "$lib/historyStorage";
-import {
-  processNotifications,
-  resetNotificationStateIfNeeded,
-} from "$lib/notifications";
-import type {
-  NotificationSettings,
-  NotificationState,
-  UsageData,
-} from "$lib/types";
+import type { UsageData } from "$lib/types";
 
 export interface UsageDataCallbacks {
-  getNotificationSettings: () => NotificationSettings;
-  getNotificationState: () => NotificationState;
-  setNotificationState: (state: NotificationState) => void;
-  updateNotificationState: (state: NotificationState) => Promise<void>;
   isAutoRefreshEnabled: () => boolean;
   setLoading: (value: boolean) => void;
   setError: (value: string | null) => void;
@@ -80,24 +68,7 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
             console.error("Failed to save usage snapshot:", e);
           }
 
-          // Check for usage resets and clear notification state if needed
-          const currentNotificationState = callbacks.getNotificationState();
-          const resetState = resetNotificationStateIfNeeded(
-            usage,
-            currentNotificationState,
-          );
-          callbacks.setNotificationState(resetState);
-
-          // Process notifications
-          const newNotificationState = await processNotifications(
-            usage,
-            callbacks.getNotificationSettings(),
-            resetState,
-          );
-
-          if (newNotificationState !== resetState) {
-            await callbacks.updateNotificationState(newNotificationState);
-          }
+          // Note: Notifications are now processed by the Rust backend
         },
       ),
     );

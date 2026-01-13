@@ -43,13 +43,9 @@ impl Default for Settings {
 /// Notification rule for a single usage type
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationRule {
-    /// Enable interval-based notifications (every X%)
     pub interval_enabled: bool,
-    /// Interval percentage (e.g., 10 means notify at 10%, 20%, 30%, etc.)
     pub interval_percent: u32,
-    /// Enable threshold-based notifications
     pub threshold_enabled: bool,
-    /// List of threshold percentages to notify at (e.g., [50, 80, 90])
     pub thresholds: Vec<u32>,
 }
 
@@ -93,7 +89,6 @@ pub struct NotificationState {
     pub seven_day_last: f64,
     pub seven_day_sonnet_last: f64,
     pub seven_day_opus_last: f64,
-    /// Set of already-fired threshold notifications (format: "type:threshold")
     pub fired_thresholds: Vec<String>,
 }
 
@@ -139,4 +134,8 @@ pub struct AppState {
     pub config: Mutex<AutoRefreshConfig>,
     /// Channel to signal the refresh loop to restart
     pub restart_tx: watch::Sender<()>,
+    /// Notification settings
+    pub notification_settings: Mutex<NotificationSettings>,
+    /// Notification state (tracks what's been notified)
+    pub notification_state: Mutex<NotificationState>,
 }

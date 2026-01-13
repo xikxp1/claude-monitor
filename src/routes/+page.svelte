@@ -18,12 +18,6 @@
 
   // Usage data needs callbacks to interact with settings
   const usageData = useUsageData({
-    getNotificationSettings: () => settings.notificationSettings,
-    getNotificationState: () => settings.notificationState,
-    setNotificationState: (state) => {
-      settings.notificationState = state;
-    },
-    updateNotificationState: (state) => settings.updateNotificationState(state),
     isAutoRefreshEnabled: () => settings.autoRefreshEnabled,
     setLoading: (value) => {
       settings.loading = value;

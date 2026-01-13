@@ -1,4 +1,5 @@
 use crate::api::fetch_usage_from_api;
+use crate::notifications::{process_notifications, reset_notification_state_if_needed};
 use crate::tray::update_tray_tooltip;
 use crate::types::{AppState, UsageErrorEvent, UsageUpdateEvent};
 use std::sync::Arc;
@@ -16,6 +17,26 @@ pub async fn do_fetch_and_emit(app: &tauri::AppHandle, state: &AppState, interva
             Ok(usage) => {
                 // Update tray tooltip
                 update_tray_tooltip(app, Some(&usage));
+
+                // Process notifications
+                {
+                    let notification_settings = state.notification_settings.lock().await;
+                    let mut notification_state = state.notification_state.lock().await;
+
+                    // Check for usage resets and clear notification state if needed
+                    let reset_state =
+                        reset_notification_state_if_needed(&usage, &notification_state);
+                    *notification_state = reset_state;
+
+                    // Process notifications and update state
+                    let new_state = process_notifications(
+                        app,
+                        &usage,
+                        &notification_settings,
+                        &notification_state,
+                    );
+                    *notification_state = new_state;
+                }
 
                 // Calculate next refresh time
                 let next_refresh_at = if enabled {

@@ -2,7 +2,7 @@ use crate::api::fetch_usage_from_api;
 use crate::auto_refresh::do_fetch_and_emit;
 use crate::credentials;
 use crate::error::AppError;
-use crate::types::{AppState, Settings, UsageData};
+use crate::types::{AppState, NotificationSettings, Settings, UsageData};
 use crate::validation::{validate_org_id, validate_session_token};
 use std::sync::Arc;
 
@@ -97,5 +97,16 @@ pub async fn refresh_now(
 
     // Signal the loop to restart (resets the timer)
     let _ = state.restart_tx.send(());
+    Ok(())
+}
+
+/// Update notification settings in memory (frontend saves to store)
+#[tauri::command]
+pub async fn set_notification_settings(
+    state: tauri::State<'_, Arc<AppState>>,
+    settings: NotificationSettings,
+) -> Result<(), ()> {
+    let mut notification_settings = state.notification_settings.lock().await;
+    *notification_settings = settings;
     Ok(())
 }
