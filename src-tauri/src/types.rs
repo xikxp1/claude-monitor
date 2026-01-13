@@ -47,6 +47,10 @@ pub struct NotificationRule {
     pub interval_percent: u32,
     pub threshold_enabled: bool,
     pub thresholds: Vec<u32>,
+    /// Enable time-remaining notifications (notify when close to reset)
+    pub time_remaining_enabled: bool,
+    /// Time thresholds in minutes (e.g., [30, 60] = notify at 30min and 1hr before reset)
+    pub time_remaining_minutes: Vec<u32>,
 }
 
 impl Default for NotificationRule {
@@ -56,6 +60,8 @@ impl Default for NotificationRule {
             interval_percent: 10,
             threshold_enabled: true,
             thresholds: vec![80, 90],
+            time_remaining_enabled: false,
+            time_remaining_minutes: vec![30, 60],
         }
     }
 }
@@ -90,6 +96,8 @@ pub struct NotificationState {
     pub seven_day_sonnet_last: f64,
     pub seven_day_opus_last: f64,
     pub fired_thresholds: Vec<String>,
+    /// Tracks fired time-remaining notifications (format: "usage_type:minutes")
+    pub fired_time_remaining: Vec<String>,
 }
 
 // ============================================================================

@@ -115,6 +115,8 @@ Complete implementation plan for Claude Monitor.
       interval_percent: u32,
       threshold_enabled: bool,
       thresholds: Vec<u32>,
+      time_remaining_enabled: bool,
+      time_remaining_minutes: Vec<u32>,
   }
   ```
 - [x] Separate rules for each usage type (5h, 7d, Sonnet, Opus)
@@ -124,6 +126,7 @@ Complete implementation plan for Claude Monitor.
 - [x] Create `notifications.rs` module with notification processing
 - [x] Interval notifications: Trigger at every X% (configurable: 5%, 10%, 15%, 20%, 25%)
 - [x] Threshold notifications: Trigger when crossing specific percentages
+- [x] Time-remaining notifications: Trigger when less than X minutes until reset (configurable: e.g., 30, 60 minutes)
 - [x] Track notification state in `AppState` to avoid duplicates
 - [x] Auto-reset notification state when usage resets (drops > 20%)
 - [x] Load notification settings/state from store on startup
@@ -134,9 +137,12 @@ Complete implementation plan for Claude Monitor.
 #### 4.3 Settings UI
 - [x] Tabbed settings interface (Credentials | Notifications)
 - [x] Per-usage-type configuration with collapsible sections
-- [x] Checkbox toggles for interval/threshold modes
+- [x] Checkbox toggles for interval/threshold/time-remaining modes
 - [x] Dropdown for interval percentage
-- [x] Comma-separated input for custom thresholds
+- [x] Predefined threshold chips (50%, 60%, 70%, 80%, 90%, 95%) - toggle to select
+- [x] Predefined time-remaining chips - context-aware options:
+  - 5 Hour: 15m, 30m, 1h, 2h
+  - 7 Day types: 30m, 1h, 2h, 4h, 12h, 1d, 2d
 - [x] Real-time save on change (syncs to backend via command)
 
 ### Phase 5: Auto-Refresh (Backend-Driven)
@@ -517,9 +523,10 @@ invoke("refresh_now")         →   Triggers immediate fetch, resets timer
 - Tray tooltip updates happen automatically
 
 ### Notification System
-- Two notification types that can be combined:
+- Three notification types that can be combined:
   1. **Interval**: Fires every X% (e.g., at 10%, 20%, 30%...)
   2. **Threshold**: Fires once when crossing specific values (e.g., 80%, 90%)
+  3. **Time-Remaining**: Fires when less than X minutes until reset (e.g., 30min, 60min before reset)
 - Each usage type (5h, 7d, Sonnet, Opus) has independent settings
 - State tracking prevents duplicate notifications
 - State auto-resets when usage drops significantly (> 20% decrease)

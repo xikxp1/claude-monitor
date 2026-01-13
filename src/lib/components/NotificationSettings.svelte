@@ -30,13 +30,60 @@
     onchange(newSettings);
   }
 
-  function updateThresholds(usageType: UsageType, value: string) {
-    const thresholds = value
-      .split(",")
-      .map((s) => Number.parseInt(s.trim(), 10))
-      .filter((n) => !Number.isNaN(n) && n >= 0 && n <= 100)
-      .sort((a, b) => a - b);
-    updateRule(usageType, { thresholds });
+  // Predefined threshold options in percent
+  const THRESHOLD_OPTIONS = [50, 80, 90, 95];
+
+  function toggleThreshold(usageType: UsageType, threshold: number) {
+    const rule = settings[usageType];
+    const current = rule.thresholds;
+    const newThresholds = current.includes(threshold)
+      ? current.filter((t) => t !== threshold)
+      : [...current, threshold].sort((a, b) => a - b);
+    updateRule(usageType, { thresholds: newThresholds });
+  }
+
+  // Predefined time options in minutes (short for 5h, extended for 7d)
+  const TIME_OPTIONS_SHORT = [
+    { value: 15, label: "15m" },
+    { value: 30, label: "30m" },
+    { value: 60, label: "1h" },
+    { value: 120, label: "2h" },
+  ];
+
+  const TIME_OPTIONS_EXTENDED = [
+    { value: 30, label: "30m" },
+    { value: 60, label: "1h" },
+    { value: 120, label: "2h" },
+    { value: 240, label: "4h" },
+    { value: 720, label: "12h" },
+    { value: 1440, label: "1d" },
+    { value: 2880, label: "2d" },
+  ];
+
+  function getTimeOptionsForUsageType(usageType: UsageType) {
+    return usageType === "five_hour" ? TIME_OPTIONS_SHORT : TIME_OPTIONS_EXTENDED;
+  }
+
+  function toggleTimeOption(usageType: UsageType, minutes: number) {
+    const rule = settings[usageType];
+    const current = rule.time_remaining_minutes;
+    const newMinutes = current.includes(minutes)
+      ? current.filter((m) => m !== minutes)
+      : [...current, minutes].sort((a, b) => a - b);
+    updateRule(usageType, { time_remaining_minutes: newMinutes });
+  }
+
+  function formatTimeMinutes(minutes: number[]): string {
+    return minutes
+      .map((m) => {
+        if (m >= 60) {
+          const hours = Math.floor(m / 60);
+          const mins = m % 60;
+          return mins > 0 ? `${hours}h${mins}m` : `${hours}h`;
+        }
+        return `${m}m`;
+      })
+      .join(", ");
   }
 
   function toggleEnabled() {
@@ -48,6 +95,9 @@
     if (rule.interval_enabled) parts.push(`every ${rule.interval_percent}%`);
     if (rule.threshold_enabled && rule.thresholds.length > 0) {
       parts.push(`at ${rule.thresholds.join(", ")}%`);
+    }
+    if (rule.time_remaining_enabled && rule.time_remaining_minutes.length > 0) {
+      parts.push(`< ${formatTimeMinutes(rule.time_remaining_minutes)}`);
     }
     return parts.length > 0 ? parts.join(", ") : "off";
   }
@@ -116,25 +166,59 @@
                 </select>
               </label>
 
-              <label class="inline-option">
-                <input
-                  type="checkbox"
-                  checked={rule.threshold_enabled}
-                  onchange={() =>
-                    updateRule(usageType, {
-                      threshold_enabled: !rule.threshold_enabled,
-                    })}
-                />
-                <span>At thresholds:</span>
-                <input
-                  type="text"
-                  value={rule.thresholds.join(", ")}
-                  placeholder="80, 90"
-                  disabled={!rule.threshold_enabled}
-                  onchange={(e) =>
-                    updateThresholds(usageType, e.currentTarget.value)}
-                />
-              </label>
+              <div class="threshold-option">
+                <label class="inline-option">
+                  <input
+                    type="checkbox"
+                    checked={rule.threshold_enabled}
+                    onchange={() =>
+                      updateRule(usageType, {
+                        threshold_enabled: !rule.threshold_enabled,
+                      })}
+                  />
+                  <span>At thresholds:</span>
+                </label>
+                <div class="threshold-chips" class:disabled={!rule.threshold_enabled}>
+                  {#each THRESHOLD_OPTIONS as threshold}
+                    <button
+                      type="button"
+                      class="threshold-chip"
+                      class:selected={rule.thresholds.includes(threshold)}
+                      disabled={!rule.threshold_enabled}
+                      onclick={() => toggleThreshold(usageType, threshold)}
+                    >
+                      {threshold}%
+                    </button>
+                  {/each}
+                </div>
+              </div>
+
+              <div class="time-remaining-option">
+                <label class="inline-option">
+                  <input
+                    type="checkbox"
+                    checked={rule.time_remaining_enabled}
+                    onchange={() =>
+                      updateRule(usageType, {
+                        time_remaining_enabled: !rule.time_remaining_enabled,
+                      })}
+                  />
+                  <span>Before reset:</span>
+                </label>
+                <div class="time-chips" class:disabled={!rule.time_remaining_enabled}>
+                  {#each getTimeOptionsForUsageType(usageType) as option}
+                    <button
+                      type="button"
+                      class="time-chip"
+                      class:selected={rule.time_remaining_minutes.includes(option.value)}
+                      disabled={!rule.time_remaining_enabled}
+                      onclick={() => toggleTimeOption(usageType, option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  {/each}
+                </div>
+              </div>
             </div>
           {/if}
         </div>
@@ -251,8 +335,7 @@
     accent-color: #7c3aed;
   }
 
-  .inline-option select,
-  .inline-option input[type="text"] {
+  .inline-option select {
     padding: 4px 6px;
     border: 1px solid #ddd;
     border-radius: 4px;
@@ -260,21 +343,89 @@
     background: #fff;
   }
 
-  .inline-option select:disabled,
-  .inline-option input[type="text"]:disabled {
+  .inline-option select:disabled {
     opacity: 0.5;
   }
 
   @media (prefers-color-scheme: dark) {
-    .inline-option select,
-    .inline-option input[type="text"] {
+    .inline-option select {
       background: #1a1a1a;
       border-color: #444;
       color: #f0f0f0;
     }
   }
 
-  .inline-option input[type="text"] {
-    width: 80px;
+  .threshold-option,
+  .time-remaining-option {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .threshold-chips,
+  .time-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-left: 20px;
+  }
+
+  .threshold-chips.disabled,
+  .time-chips.disabled {
+    opacity: 0.5;
+  }
+
+  .threshold-chip,
+  .time-chip {
+    padding: 3px 8px;
+    border: 1px solid #ddd;
+    border-radius: 12px;
+    background: #fff;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    color: #666;
+  }
+
+  .threshold-chip:hover:not(:disabled),
+  .time-chip:hover:not(:disabled) {
+    background: #7c3aed;
+    border-color: #7c3aed;
+    color: #fff;
+  }
+
+  .threshold-chip.selected,
+  .time-chip.selected {
+    background: #7c3aed;
+    border-color: #7c3aed;
+    color: #fff;
+  }
+
+  .threshold-chip:disabled,
+  .time-chip:disabled {
+    cursor: not-allowed;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .threshold-chip,
+    .time-chip {
+      background: #1a1a1a;
+      border-color: #444;
+      color: #aaa;
+    }
+
+    .threshold-chip:hover:not(:disabled),
+    .time-chip:hover:not(:disabled) {
+      background: #9f7aea;
+      border-color: #9f7aea;
+      color: #fff;
+    }
+
+    .threshold-chip.selected,
+    .time-chip.selected {
+      background: #7c3aed;
+      border-color: #7c3aed;
+      color: #fff;
+    }
   }
 </style>

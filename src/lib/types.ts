@@ -24,6 +24,10 @@ export interface NotificationRule {
   interval_percent: number;
   thresholds: number[];
   threshold_enabled: boolean;
+  /** Enable time-remaining notifications (notify when close to reset) */
+  time_remaining_enabled: boolean;
+  /** Time thresholds in minutes (e.g., [30, 60] = notify at 30min and 1hr before reset) */
+  time_remaining_minutes: number[];
 }
 
 export interface NotificationSettings {
@@ -40,6 +44,8 @@ export interface NotificationState {
   seven_day_sonnet_last: number;
   seven_day_opus_last: number;
   fired_thresholds: string[];
+  /** Tracks fired time-remaining notifications (format: "usage_type:minutes") */
+  fired_time_remaining: string[];
 }
 
 export type UsageType = "five_hour" | "seven_day" | "seven_day_sonnet" | "seven_day_opus";
@@ -57,6 +63,8 @@ export function getDefaultNotificationRule(): NotificationRule {
     interval_percent: 10,
     threshold_enabled: true,
     thresholds: [80, 90],
+    time_remaining_enabled: false,
+    time_remaining_minutes: [30, 60],
   };
 }
 
@@ -77,5 +85,6 @@ export function getDefaultNotificationState(): NotificationState {
     seven_day_sonnet_last: 0,
     seven_day_opus_last: 0,
     fired_thresholds: [],
+    fired_time_remaining: [],
   };
 }

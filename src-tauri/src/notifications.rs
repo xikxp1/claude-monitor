@@ -1,4 +1,5 @@
 use crate::types::{NotificationSettings, NotificationState, UsageData};
+use chrono::{DateTime, Utc};
 use tauri_plugin_notification::NotificationExt;
 
 fn get_label(usage_type: &str) -> &'static str {
@@ -52,6 +53,62 @@ fn check_threshold_notification(
         }
     }
     None
+}
+
+/// Check if a time-remaining notification should be sent
+/// Returns the time threshold (in minutes) that was crossed, or None if no notification needed
+fn check_time_remaining_notification(
+    resets_at: Option<&String>,
+    time_thresholds_minutes: &[u32],
+    fired_time_remaining: &[String],
+    usage_type: &str,
+) -> Option<u32> {
+    let resets_at_str = resets_at?;
+
+    // Parse the reset timestamp
+    let reset_time = DateTime::parse_from_rfc3339(resets_at_str)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))?;
+
+    let now = Utc::now();
+    let duration_until_reset = reset_time.signed_duration_since(now);
+
+    // If already past reset time, no notification needed
+    if duration_until_reset.num_seconds() <= 0 {
+        return None;
+    }
+
+    let minutes_remaining = duration_until_reset.num_minutes() as u32;
+
+    // Check each threshold (sorted descending to fire the highest applicable one)
+    let mut sorted_thresholds: Vec<u32> = time_thresholds_minutes.to_vec();
+    sorted_thresholds.sort_by(|a, b| b.cmp(a)); // Sort descending
+
+    for &threshold_minutes in &sorted_thresholds {
+        let key = format!("{}:time:{}", usage_type, threshold_minutes);
+
+        // Fire if we're under the threshold and haven't fired this one yet
+        if minutes_remaining <= threshold_minutes && !fired_time_remaining.contains(&key) {
+            return Some(threshold_minutes);
+        }
+    }
+
+    None
+}
+
+/// Format minutes into a human-readable string
+fn format_time_remaining(minutes: u32) -> String {
+    if minutes >= 60 {
+        let hours = minutes / 60;
+        let mins = minutes % 60;
+        if mins > 0 {
+            format!("{}h {}m", hours, mins)
+        } else {
+            format!("{}h", hours)
+        }
+    } else {
+        format!("{}m", minutes)
+    }
 }
 
 /// Process usage data and send notifications as needed
@@ -114,6 +171,22 @@ pub fn process_notifications<R: tauri::Runtime>(
             }
         }
 
+        // Check time-remaining notification
+        if rule.time_remaining_enabled {
+            if let Some(threshold_minutes) = check_time_remaining_notification(
+                period.resets_at.as_ref(),
+                &rule.time_remaining_minutes,
+                &new_state.fired_time_remaining,
+                usage_type,
+            ) {
+                let time_str = format_time_remaining(threshold_minutes);
+                notifications.push(format!("resets in < {}", time_str));
+                new_state
+                    .fired_time_remaining
+                    .push(format!("{}:time:{}", usage_type, threshold_minutes));
+            }
+        }
+
         // Send notification if any triggers fired
         if !notifications.is_empty() {
             let title = format!("{} Usage Alert", get_label(usage_type));
@@ -165,6 +238,10 @@ pub fn reset_notification_state_if_needed(
             new_state
                 .fired_thresholds
                 .retain(|t| !t.starts_with(&format!("{}:", usage_type)));
+            // Clear fired time-remaining notifications for this usage type
+            new_state
+                .fired_time_remaining
+                .retain(|t| !t.starts_with(&format!("{}:time:", usage_type)));
         }
     }
 
