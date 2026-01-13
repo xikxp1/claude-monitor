@@ -342,7 +342,7 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
 ### Long Term (Lower Priority - Performance & Distribution)
 
 #### Performance Optimizations
-- [ ] Pause countdown timer when window hidden (reduce CPU wakeups)
+- [x] Pause countdown timer when window hidden (reduce CPU wakeups)
 - [ ] Combine 3 database queries into 1 in `getUsageStats()`
 - [ ] Add pagination/downsampling for analytics with large datasets
 - [ ] Conditional plugin loading for platform-specific features

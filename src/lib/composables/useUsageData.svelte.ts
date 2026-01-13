@@ -21,36 +21,69 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
   let secondsSinceLastUpdate = $state(0);
 
   let countdownInterval: ReturnType<typeof setInterval> | null = null;
+  let visibilityHandler: (() => void) | null = null;
   let unlistenFns: UnlistenFn[] = [];
+
+  function updateTimers() {
+    // Update countdown to next refresh
+    if (nextRefreshAt && callbacks.isAutoRefreshEnabled()) {
+      const remaining = Math.max(
+        0,
+        Math.floor((nextRefreshAt - Date.now()) / 1000),
+      );
+      secondsUntilNextUpdate = remaining;
+    } else {
+      secondsUntilNextUpdate = 0;
+    }
+
+    // Update time since last update
+    if (lastUpdateTime) {
+      secondsSinceLastUpdate = Math.floor(
+        (Date.now() - lastUpdateTime.getTime()) / 1000,
+      );
+    }
+  }
+
+  function startInterval() {
+    if (countdownInterval) return;
+    countdownInterval = setInterval(updateTimers, 1000);
+  }
+
+  function stopInterval() {
+    if (countdownInterval) {
+      clearInterval(countdownInterval);
+      countdownInterval = null;
+    }
+  }
+
+  function handleVisibilityChange() {
+    if (document.hidden) {
+      stopInterval();
+    } else {
+      // Update immediately when becoming visible, then start interval
+      updateTimers();
+      startInterval();
+    }
+  }
 
   function startCountdown() {
     stopCountdown();
 
-    countdownInterval = setInterval(() => {
-      // Update countdown to next refresh
-      if (nextRefreshAt && callbacks.isAutoRefreshEnabled()) {
-        const remaining = Math.max(
-          0,
-          Math.floor((nextRefreshAt - Date.now()) / 1000),
-        );
-        secondsUntilNextUpdate = remaining;
-      } else {
-        secondsUntilNextUpdate = 0;
-      }
+    // Start the interval
+    startInterval();
 
-      // Update time since last update
-      if (lastUpdateTime) {
-        secondsSinceLastUpdate = Math.floor(
-          (Date.now() - lastUpdateTime.getTime()) / 1000,
-        );
-      }
-    }, 1000);
+    // Set up visibility change listener to pause when hidden
+    visibilityHandler = handleVisibilityChange;
+    document.addEventListener("visibilitychange", visibilityHandler);
   }
 
   function stopCountdown() {
-    if (countdownInterval) {
-      clearInterval(countdownInterval);
-      countdownInterval = null;
+    stopInterval();
+
+    // Remove visibility change listener
+    if (visibilityHandler) {
+      document.removeEventListener("visibilitychange", visibilityHandler);
+      visibilityHandler = null;
     }
   }
 
