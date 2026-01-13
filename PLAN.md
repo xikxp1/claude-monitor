@@ -177,20 +177,22 @@ Complete implementation plan for Claude Monitor.
 
 ### Phase 7: Secure Token Storage
 
-#### 7.1 Stronghold Integration (Rust Backend)
-- [x] Add `tauri-plugin-stronghold` (Rust only - uses Stronghold wrapper directly)
-- [x] Implement Rust functions for Stronghold access:
-  - `derive_stronghold_password()` - Machine-specific password derivation (SHA-256)
-  - `load_credentials_from_stronghold()` - Load credentials on app startup
-  - `save_credentials_to_stronghold()` - Save credentials to encrypted storage
-  - `delete_credentials_from_stronghold()` - Clear credentials from storage
-- [x] Load credentials from Stronghold in setup function (before auto-refresh starts)
-- [x] `save_credentials` command - Validates, saves to Stronghold, updates in-memory state
-- [x] `clear_credentials` command - Deletes from Stronghold and clears state
+#### 7.1 OS Keychain Integration (Rust Backend)
+- [x] Add `keyring` crate with platform-native features:
+  - `apple-native` for macOS Keychain
+  - `windows-native` for Windows Credential Manager
+  - `linux-native-sync-persistent` for Linux Secret Service
+- [x] Implement Rust functions in `credentials.rs`:
+  - `load_credentials()` - Load credentials from OS keychain on app startup
+  - `save_credentials()` - Save credentials to OS keychain
+  - `delete_credentials()` - Clear credentials from OS keychain
+- [x] Load credentials from keychain in setup function (before auto-refresh starts)
+- [x] `save_credentials` command - Validates, saves to keychain, updates in-memory state
+- [x] `clear_credentials` command - Deletes from keychain and clears state
 - [x] `get_is_configured` command - Check if credentials exist without exposing them
 - [x] Credentials never pass through frontend - only exist in:
   - User form input (briefly, during setup)
-  - Rust backend (memory + encrypted Stronghold file)
+  - Rust backend (memory + OS-native secure storage)
 
 ### Phase 8: Charts & Usage Analytics
 
@@ -296,6 +298,15 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
   - `useAnalytics.svelte.ts` - Analytics data loading and chart filters
   - `useUsageData.svelte.ts` - Usage data fetching, events, countdown timer
   - `utils/formatting.ts` - Pure formatting functions (getUsageColor, formatResetTime, etc.)
+- [x] Split `src-tauri/src/lib.rs` into modules:
+  - `error.rs` - AppError enum with Serialize impl
+  - `types.rs` - All data structures (UsageData, Settings, NotificationRule, etc.)
+  - `validation.rs` - Input validation (validate_session_token, validate_org_id)
+  - `credentials.rs` - OS keychain storage (keyring crate)
+  - `api.rs` - HTTP client (fetch_usage_from_api)
+  - `tray.rs` - System tray creation and tooltip updates
+  - `auto_refresh.rs` - Background refresh loop
+  - `commands.rs` - Tauri commands
 - [ ] Centralize color/label constants (currently duplicated in chart, CSS, components)
 - [ ] Remove duplicated notification switch statements - use `Record<UsageType, number>`
 - [ ] Add input validation for settings (e.g., `refresh_interval_minutes` bounds)
@@ -353,8 +364,8 @@ tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 tauri-plugin-nspopover = { git = "https://github.com/freethinkel/tauri-nspopover-plugin.git", version = "4.0.0" }
 tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"
-tauri-plugin-stronghold = "2"
-tauri-plugin-sql = { version = "2", features = ["sqlite"] }  # Phase 8: Analytics
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
@@ -379,8 +390,6 @@ chrono = { version = "0.4", features = ["serde"] }
   }
 }
 ```
-
-Note: `@tauri-apps/plugin-stronghold` npm package is NOT needed - Stronghold is accessed entirely from Rust backend.
 
 ---
 
@@ -410,8 +419,16 @@ claude-monitor/
 │   └── app.html
 ├── src-tauri/
 │   ├── src/
-│   │   ├── lib.rs                            # Rust backend (API, tray, commands)
-│   │   └── main.rs                           # Entry point
+│   │   ├── api.rs                            # HTTP client (fetch_usage_from_api)
+│   │   ├── auto_refresh.rs                   # Background refresh loop
+│   │   ├── commands.rs                       # Tauri commands
+│   │   ├── error.rs                          # AppError enum
+│   │   ├── lib.rs                            # Module re-exports and app entry point
+│   │   ├── main.rs                           # Entry point
+│   │   ├── credentials.rs                    # OS keychain storage (keyring)
+│   │   ├── tray.rs                           # System tray creation and tooltip
+│   │   ├── types.rs                          # Data structures
+│   │   └── validation.rs                     # Input validation
 │   ├── capabilities/
 │   │   └── default.json                      # Permissions
 │   ├── icons/
@@ -433,6 +450,18 @@ claude-monitor/
 - Trait names: `AppExt`, `WindowExt` (not `AppHandleExt`, `WebviewWindowExt`)
 - Plugin must be initialized with `.plugin(tauri_plugin_nspopover::init())`
 - Permissions: `nspopover:allow-show-popover`, `nspopover:allow-hide-popover`, `nspopover:allow-is-popover-shown`
+
+### Rust Backend Module Structure
+The Rust backend (`src-tauri/src/`) is organized into focused modules:
+- `error.rs` - Custom `AppError` enum with thiserror and Serialize
+- `types.rs` - All shared data structures (UsageData, Settings, NotificationRule, AppState, etc.)
+- `validation.rs` - Input sanitization (session token, org ID format validation)
+- `credentials.rs` - OS keychain storage via `keyring` crate (load/save/delete)
+- `api.rs` - HTTP client for Claude API
+- `tray.rs` - System tray creation and tooltip updates
+- `auto_refresh.rs` - Background refresh loop with tokio
+- `commands.rs` - Tauri command handlers
+- `lib.rs` - Module declarations, plugin setup, and app entry point
 
 ### Backend Auto-Refresh Architecture
 The auto-refresh system is implemented in the Rust backend for reliability:
@@ -493,23 +522,23 @@ The Claude usage API returns:
 - **macOS**: Uses NSPopover for proper fullscreen support, auto-hides on focus loss
 - **Windows/Linux**: Uses positioner plugin, manual hide on focus loss, always-on-top window
 
-### Stronghold Secure Storage (Rust Backend)
-- Uses `tauri-plugin-stronghold`'s Stronghold wrapper for encrypted credential storage
+### OS Keychain Secure Storage (Rust Backend)
+- Uses `keyring` crate for cross-platform secure credential storage:
+  - **macOS**: Keychain Services
+  - **Windows**: Windows Credential Manager
+  - **Linux**: Secret Service (libsecret)
 - **Credentials never pass through frontend** - stored only in:
   - Rust backend memory (for API calls)
-  - Encrypted Stronghold file (`credentials.stronghold` in app data directory)
-- Password derivation: SHA-256 hash of `APP_IDENTIFIER:app_data_dir`
-  - Deterministic per user/machine without storing password anywhere
-  - 32-byte key as required by Stronghold
-- Rust functions:
-  - `derive_stronghold_password()` - Machine-specific password derivation
-  - `load_credentials_from_stronghold()` - Called in setup, loads on app start
-  - `save_credentials_to_stronghold()` - Called by `save_credentials` command
-  - `delete_credentials_from_stronghold()` - Called by `clear_credentials` command
+  - OS-native secure storage
+- Rust functions in `credentials.rs`:
+  - `load_credentials()` - Called in setup, loads on app start
+  - `save_credentials()` - Called by `save_credentials` command
+  - `delete_credentials()` - Called by `clear_credentials` command
 - Tauri commands for frontend:
   - `save_credentials(org_id, session_token)` - Validates, saves, updates state
   - `clear_credentials()` - Deletes and clears state
   - `get_is_configured()` - Returns boolean without exposing credentials
+- Service name: `dev.xikxp1.claude-monitor`
 - No npm package needed - frontend only calls Tauri commands
 
 ### Charts & Analytics (Phase 8)
