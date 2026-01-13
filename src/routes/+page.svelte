@@ -563,6 +563,7 @@
     justify-content: space-between;
     align-items: center;
     gap: 12px;
+    margin-left: 4px;
   }
 
   .time-range-selector {
@@ -576,6 +577,7 @@
   .usage-type-filter {
     display: flex;
     gap: 8px;
+    margin-right: 12px;
   }
 
   .filter-item {
