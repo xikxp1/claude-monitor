@@ -40,7 +40,7 @@ Complete implementation plan for Claude Monitor.
 ### Phase 2: API Integration
 
 #### 2.1 HTTP Client Setup
-- [x] Add `reqwest` with `rustls-tls` support
+- [x] Add `reqwest` with `rustls` support
 - [x] Implement request with headers:
   ```
   Cookie: sessionKey={token}
@@ -279,8 +279,8 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
 - [ ] Add exponential backoff on 429 rate limit errors
 
 #### State Management Fixes
-- [ ] Fix stale closure in event listeners (access settings fresh in handler)
-- [ ] Fix race condition in notification state sync
+- [x] ~~Fix stale closure in event listeners~~ - No longer applicable (usage events handled by backend)
+- [x] ~~Fix race condition in notification state sync~~ - No longer applicable (notifications fully backend-driven)
 - [ ] Add debouncing to settings form changes
 
 #### UX Improvements
@@ -339,6 +339,15 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
 
 ---
 
+### Short Term (Medium Priority - Testing)
+
+#### Testing Infrastructure
+- [ ] Add Vitest unit tests for frontend utilities (formatting.ts)
+- [ ] Add Vitest unit tests for composables
+- [ ] Add Cargo tests for Rust modules (validation, history, notifications)
+- [ ] Add integration tests for Tauri commands
+- [ ] Add Playwright e2e tests for critical flows
+
 ### Long Term (Lower Priority - Performance & Distribution)
 
 #### Performance Optimizations
@@ -346,6 +355,11 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
 - [ ] Combine 3 database queries into 1 in `getUsageStats()`
 - [ ] Add pagination/downsampling for analytics with large datasets
 - [ ] Conditional plugin loading for platform-specific features
+
+#### Database Improvements
+- [ ] Add database migration support for schema changes
+- [ ] Add database backup/restore functionality
+- [ ] Optimize SQLite with WAL mode for better concurrent access
 
 #### Distribution
 - [x] App icon design (all sizes)
@@ -410,10 +424,10 @@ claude-monitor/
 │   │   │   ├── index.ts                      # Re-exports
 │   │   │   ├── useAnalytics.svelte.ts        # Analytics state & actions
 │   │   │   ├── useSettings.svelte.ts         # Settings, credentials, notifications
-│   │   │   └── useUsageData.svelte.ts        # Usage data, events, countdown
+│   │   │   └── useUsageData.svelte.ts        # Usage data, events, countdown, visibility handling
 │   │   ├── utils/                            # Pure utility functions
 │   │   │   ├── index.ts                      # Re-exports
-│   │   │   └── formatting.ts                 # Date/time/color formatting
+│   │   │   └── formatting.ts                 # Formatting (formatSecondsAgo, formatCountdown, etc.)
 │   │   ├── historyStorage.ts                 # Frontend API for history (calls Rust)
 │   │   └── types.ts                          # TypeScript types
 │   ├── routes/
