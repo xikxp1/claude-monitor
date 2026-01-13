@@ -18,6 +18,7 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
   let lastUpdateTime: Date | null = $state(null);
   let nextRefreshAt: number | null = $state(null);
   let secondsUntilNextUpdate = $state(0);
+  let secondsSinceLastUpdate = $state(0);
 
   let countdownInterval: ReturnType<typeof setInterval> | null = null;
   let unlistenFns: UnlistenFn[] = [];
@@ -26,6 +27,7 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
     stopCountdown();
 
     countdownInterval = setInterval(() => {
+      // Update countdown to next refresh
       if (nextRefreshAt && callbacks.isAutoRefreshEnabled()) {
         const remaining = Math.max(
           0,
@@ -34,6 +36,13 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
         secondsUntilNextUpdate = remaining;
       } else {
         secondsUntilNextUpdate = 0;
+      }
+
+      // Update time since last update
+      if (lastUpdateTime) {
+        secondsSinceLastUpdate = Math.floor(
+          (Date.now() - lastUpdateTime.getTime()) / 1000,
+        );
       }
     }, 1000);
   }
@@ -57,6 +66,7 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
           usageData = usage;
           lastUpdateTime = new Date();
           nextRefreshAt = nextAt;
+          secondsSinceLastUpdate = 0;
           callbacks.setError(null);
           callbacks.setLoading(false);
           // Usage snapshots and notifications are processed by the Rust backend
@@ -110,6 +120,7 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
     usageData = null;
     lastUpdateTime = null;
     nextRefreshAt = null;
+    secondsSinceLastUpdate = 0;
   }
 
   return {
@@ -125,6 +136,9 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
     },
     get secondsUntilNextUpdate() {
       return secondsUntilNextUpdate;
+    },
+    get secondsSinceLastUpdate() {
+      return secondsSinceLastUpdate;
     },
 
     // Actions

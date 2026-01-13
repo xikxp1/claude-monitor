@@ -7,8 +7,8 @@
   import type { UsagePeriod } from "$lib/types";
   import {
     formatCountdown,
-    formatLastUpdate,
     formatResetTime,
+    formatSecondsAgo,
     getUsageColor,
   } from "$lib/utils";
 
@@ -359,7 +359,7 @@
         <div class="refresh-row">
           <div class="update-info">
             <span class="last-update"
-              >Updated: {formatLastUpdate(usageData.lastUpdateTime)}</span
+              >Updated: {formatSecondsAgo(usageData.secondsSinceLastUpdate)}</span
             >
             {#if settings.autoRefreshEnabled}
               <span class="next-update"

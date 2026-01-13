@@ -42,6 +42,13 @@ export function formatLastUpdate(date: Date | null): string {
   return `${diffMins} min ago`;
 }
 
+export function formatSecondsAgo(seconds: number): string {
+  if (seconds < 60) return "Just now";
+  const mins = Math.floor(seconds / 60);
+  if (mins === 1) return "1 min ago";
+  return `${mins} min ago`;
+}
+
 export function formatCountdown(seconds: number): string {
   if (seconds <= 0) return "now";
   const mins = Math.floor(seconds / 60);
