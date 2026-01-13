@@ -75,7 +75,9 @@
       <div class="card-header">
         <span class="card-title">{title}</span>
         <span class="reset-time"
-          >Resets in {formatResetTime(period.resets_at)}</span
+          >{period.resets_at
+            ? `Resets in ${formatResetTime(period.resets_at)}`
+            : "Starts when a message is sent"}</span
         >
       </div>
       <div class="usage-bar-container">
@@ -266,7 +268,8 @@
               <input
                 type="checkbox"
                 checked={settings.autostartEnabled}
-                onchange={(e) => settings.toggleAutostart(e.currentTarget.checked)}
+                onchange={(e) =>
+                  settings.toggleAutostart(e.currentTarget.checked)}
               />
               <span>Start at login</span>
             </label>
@@ -359,7 +362,9 @@
         <div class="refresh-row">
           <div class="update-info">
             <span class="last-update"
-              >Updated: {formatSecondsAgo(usageData.secondsSinceLastUpdate)}</span
+              >Updated: {formatSecondsAgo(
+                usageData.secondsSinceLastUpdate,
+              )}</span
             >
             {#if settings.autoRefreshEnabled}
               <span class="next-update"
@@ -389,8 +394,14 @@
           <div class="usage-grid">
             {@render usageCard("5 Hour", usageData.usageData.five_hour)}
             {@render usageCard("7 Day", usageData.usageData.seven_day)}
-            {@render usageCard("Sonnet (7 Day)", usageData.usageData.seven_day_sonnet)}
-            {@render usageCard("Opus (7 Day)", usageData.usageData.seven_day_opus)}
+            {@render usageCard(
+              "Sonnet (7 Day)",
+              usageData.usageData.seven_day_sonnet,
+            )}
+            {@render usageCard(
+              "Opus (7 Day)",
+              usageData.usageData.seven_day_opus,
+            )}
           </div>
         {:else}
           <div class="empty">No usage data available</div>

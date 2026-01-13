@@ -1,6 +1,6 @@
 export interface UsagePeriod {
   utilization: number;
-  resets_at: string;
+  resets_at: string | null;
 }
 
 export interface UsageData {

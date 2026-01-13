@@ -16,7 +16,7 @@ pub struct UsageData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsagePeriod {
     pub utilization: f64,
-    pub resets_at: String,
+    pub resets_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
