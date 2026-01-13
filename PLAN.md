@@ -266,7 +266,8 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
 ### Immediate (High Priority - Stability)
 
 #### Error Handling
-- [ ] Add try-catch to all Tauri command invokes (`saveNotificationSettings`, `saveGeneralSettings`, `refreshNow`)
+- [x] Add try-catch to all Tauri command invokes (`get_is_configured`, `set_auto_refresh`, `save_credentials`, `clear_credentials`, `refresh_now`)
+- [x] Add try-catch to all store operations (`saveNotificationSettings`, `saveGeneralSettings`, `saveDataRetention`, `clearSettings`)
 - [ ] Better error messages for common failures
 - [ ] Network offline indicator
 - [ ] Session expired prompt with re-login option
@@ -290,7 +291,11 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
 ### Short Term (Medium Priority - Code Quality)
 
 #### Code Organization
-- [ ] Break `+page.svelte` into smaller composables (useRefreshLogic, useAnalyticsLogic, useNotificationLogic)
+- [x] Break `+page.svelte` into smaller composables:
+  - `useSettings.svelte.ts` - Credentials, general settings, autostart, notifications
+  - `useAnalytics.svelte.ts` - Analytics data loading and chart filters
+  - `useUsageData.svelte.ts` - Usage data fetching, events, countdown timer
+  - `utils/formatting.ts` - Pure formatting functions (getUsageColor, formatResetTime, etc.)
 - [ ] Centralize color/label constants (currently duplicated in chart, CSS, components)
 - [ ] Remove duplicated notification switch statements - use `Record<UsageType, number>`
 - [ ] Add input validation for settings (e.g., `refresh_interval_minutes` bounds)
@@ -388,15 +393,20 @@ claude-monitor/
 │   │   ├── components/
 │   │   │   ├── NotificationSettings.svelte  # Notification config UI
 │   │   │   └── charts/                       # Phase 8: Analytics charts
-│   │   │       ├── UsageLineChart.svelte     # Time-series line chart
-│   │   │       ├── UsageAreaChart.svelte     # Stacked area chart
-│   │   │       ├── UsageStats.svelte         # Summary statistics
-│   │   │       └── ChartContainer.svelte     # Reusable wrapper
+│   │   │       └── UsageLineChart.svelte     # Time-series line chart
+│   │   ├── composables/                      # Svelte 5 composables
+│   │   │   ├── index.ts                      # Re-exports
+│   │   │   ├── useAnalytics.svelte.ts        # Analytics state & actions
+│   │   │   ├── useSettings.svelte.ts         # Settings, credentials, notifications
+│   │   │   └── useUsageData.svelte.ts        # Usage data, events, countdown
+│   │   ├── utils/                            # Pure utility functions
+│   │   │   ├── index.ts                      # Re-exports
+│   │   │   └── formatting.ts                 # Date/time/color formatting
 │   │   ├── notifications.ts                  # Notification logic
 │   │   ├── historyStorage.ts                 # Phase 8: SQLite history storage
 │   │   └── types.ts                          # TypeScript types
 │   ├── routes/
-│   │   └── +page.svelte                      # Main dashboard + settings
+│   │   └── +page.svelte                      # Main dashboard (UI only, ~400 lines)
 │   └── app.html
 ├── src-tauri/
 │   ├── src/

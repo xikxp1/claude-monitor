@@ -1,417 +1,76 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
-  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-  import {
-    disable as disableAutostart,
-    enable as enableAutostart,
-    isEnabled as isAutostartEnabled,
-  } from "@tauri-apps/plugin-autostart";
-  import { LazyStore } from "@tauri-apps/plugin-store";
   import { onMount } from "svelte";
   import UsageLineChart from "$lib/components/charts/UsageLineChart.svelte";
   import NotificationSettingsComponent from "$lib/components/NotificationSettings.svelte";
+  import { useAnalytics, useSettings, useUsageData } from "$lib/composables";
+  import { initHistoryStorage } from "$lib/historyStorage";
+  import type { UsagePeriod } from "$lib/types";
   import {
-    cleanupOldData,
-    getUsageHistoryByRange,
-    initHistoryStorage,
-    saveUsageSnapshot,
-    type TimeRange,
-    type UsageHistoryRecord,
-  } from "$lib/historyStorage";
-  import {
-    processNotifications,
-    resetNotificationStateIfNeeded,
-  } from "$lib/notifications";
-  import type {
-    NotificationSettings,
-    NotificationState,
-    UsageData,
-    UsagePeriod,
-  } from "$lib/types";
-  import {
-    getDefaultNotificationSettings,
-    getDefaultNotificationState,
-  } from "$lib/types";
+    formatCountdown,
+    formatLastUpdate,
+    formatResetTime,
+    getUsageColor,
+  } from "$lib/utils";
 
-  // Settings (no credentials - those are kept server-side only)
-  let refreshIntervalMinutes = $state(5);
-  let autoRefreshEnabled = $state(true);
+  // Initialize composables
+  const settings = useSettings();
+  const analytics = useAnalytics();
 
-  let usageData: UsageData | null = $state(null);
-  let initializing = $state(true);
-  let loading = $state(false);
-  let error: string | null = $state(null);
-  let showSettings = $state(false);
-  let settingsTab: "credentials" | "notifications" | "general" =
-    $state("credentials");
-
-  // Credentials are kept server-side, frontend only tracks if configured
-  let isConfigured = $state(false);
-
-  // Notification state
-  let notificationSettings: NotificationSettings = $state(
-    getDefaultNotificationSettings(),
-  );
-  let notificationState: NotificationState = $state(
-    getDefaultNotificationState(),
-  );
-
-  // Form inputs (temporary, cleared after save)
-  let orgIdInput = $state("");
-  let tokenInput = $state("");
-
-  // Auto-refresh state (managed by backend, frontend just displays)
-  let lastUpdateTime: Date | null = $state(null);
-  let nextRefreshAt: number | null = $state(null); // Unix timestamp in ms
-  let countdownInterval: ReturnType<typeof setInterval> | null = null;
-  let secondsUntilNextUpdate = $state(0);
-
-  // Auto-start state
-  let autostartEnabled = $state(false);
-
-  // Data retention
-  let dataRetentionDays = $state(30);
-
-  // Analytics state
-  let showAnalytics = $state(false);
-  let analyticsTimeRange: TimeRange = $state("24h");
-  let analyticsHistory: UsageHistoryRecord[] = $state([]);
-  let analyticsLoading = $state(false);
-
-  // Analytics filters
-  let showFiveHour = $state(true);
-  let showSevenDay = $state(true);
-  let showSonnet = $state(true);
-  let showOpus = $state(true);
-
-  const store = new LazyStore("settings.json", {
-    autoSave: true,
-    defaults: {},
+  // Usage data needs callbacks to interact with settings
+  const usageData = useUsageData({
+    getNotificationSettings: () => settings.notificationSettings,
+    getNotificationState: () => settings.notificationState,
+    setNotificationState: (state) => {
+      settings.notificationState = state;
+    },
+    updateNotificationState: (state) => settings.updateNotificationState(state),
+    isAutoRefreshEnabled: () => settings.autoRefreshEnabled,
+    setLoading: (value) => {
+      settings.loading = value;
+    },
+    setError: (value) => {
+      settings.error = value;
+    },
+    isConfigured: () => settings.isConfigured,
   });
 
-  let unlistenFns: UnlistenFn[] = [];
-
-  function getUsageColor(utilization: number): string {
-    if (utilization >= 90) return "red";
-    if (utilization >= 80) return "orange";
-    if (utilization >= 50) return "yellow";
-    return "green";
-  }
-
-  function formatResetTime(resets_at: string): string {
-    try {
-      const date = new Date(resets_at);
-      const now = new Date();
-      const diffMs = date.getTime() - now.getTime();
-      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-      const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-
-      if (diffHours > 24) {
-        const days = Math.floor(diffHours / 24);
-        return `${days}d ${diffHours % 24}h`;
-      }
-      if (diffHours > 0) {
-        return `${diffHours}h ${diffMins}m`;
-      }
-      return `${diffMins}m`;
-    } catch {
-      return "";
-    }
-  }
-
-  function formatLastUpdate(date: Date | null): string {
-    if (!date) return "Never";
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffSecs = Math.floor(diffMs / 1000);
-    const diffMins = Math.floor(diffSecs / 60);
-
-    if (diffSecs < 60) return "Just now";
-    if (diffMins === 1) return "1 min ago";
-    return `${diffMins} min ago`;
-  }
-
-  function formatCountdown(seconds: number): string {
-    if (seconds <= 0) return "now";
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    if (mins > 0) {
-      return `${mins}m ${secs}s`;
-    }
-    return `${secs}s`;
-  }
-
-  function startCountdown() {
-    stopCountdown();
-
-    // Update countdown every second based on nextRefreshAt
-    countdownInterval = setInterval(() => {
-      if (nextRefreshAt && autoRefreshEnabled) {
-        const remaining = Math.max(0, Math.floor((nextRefreshAt - Date.now()) / 1000));
-        secondsUntilNextUpdate = remaining;
-      } else {
-        secondsUntilNextUpdate = 0;
-      }
-    }, 1000);
-  }
-
-  function stopCountdown() {
-    if (countdownInterval) {
-      clearInterval(countdownInterval);
-      countdownInterval = null;
-    }
-  }
+  let initializing = $state(true);
 
   onMount(() => {
-    // Initialize history storage for analytics
     initHistoryStorage();
-
     initApp();
 
     return () => {
-      for (const unlisten of unlistenFns) {
-        unlisten();
-      }
-      stopCountdown();
+      usageData.cleanup();
     };
   });
 
   async function initApp() {
     // Set up event listeners for backend events
-    unlistenFns.push(
-      await listen<{ usage: UsageData; nextRefreshAt: number | null }>(
-        "usage-updated",
-        async (event) => {
-          const { usage, nextRefreshAt: nextAt } = event.payload;
-          usageData = usage;
-          lastUpdateTime = new Date();
-          nextRefreshAt = nextAt;
-          error = null;
-          loading = false;
+    await usageData.setupEventListeners();
 
-          // Save usage snapshot for analytics
-          try {
-            await saveUsageSnapshot(usage);
-          } catch (e) {
-            console.error("Failed to save usage snapshot:", e);
-          }
+    // Initialize settings (loads from store and backend)
+    await settings.init();
 
-          // Check for usage resets and clear notification state if needed
-          notificationState = resetNotificationStateIfNeeded(
-            usage,
-            notificationState,
-          );
-
-          // Process notifications
-          const newNotificationState = await processNotifications(
-            usage,
-            notificationSettings,
-            notificationState,
-          );
-
-          if (newNotificationState !== notificationState) {
-            notificationState = newNotificationState;
-            await store.set("notification_state", notificationState);
-          }
-        },
-      ),
-    );
-
-    unlistenFns.push(
-      await listen<{ error: string }>("usage-error", (event) => {
-        error = event.payload.error;
-        loading = false;
-      }),
-    );
-
-    // Backend loads credentials from Stronghold on startup
-    // Just check if configured and mark initialization complete
-    isConfigured = await invoke<boolean>("get_is_configured");
     initializing = false;
 
-    // Load general settings from store
-    const savedInterval = await store.get<number>("refresh_interval_minutes");
-    const savedAutoRefresh = await store.get<boolean>("auto_refresh_enabled");
-
-    refreshIntervalMinutes = savedInterval ?? 5;
-    autoRefreshEnabled = savedAutoRefresh ?? true;
-
-    // Load notification settings
-    const savedNotificationSettings = await store.get<NotificationSettings>(
-      "notification_settings",
-    );
-    if (savedNotificationSettings) {
-      notificationSettings = savedNotificationSettings;
-    }
-
-    // Load notification state
-    const savedNotificationState =
-      await store.get<NotificationState>("notification_state");
-    if (savedNotificationState) {
-      notificationState = savedNotificationState;
-    }
-
-    // Load autostart state
-    try {
-      autostartEnabled = await isAutostartEnabled();
-    } catch {
-      autostartEnabled = false;
-    }
-
-    // Load data retention setting
-    const savedRetention = await store.get<number>("data_retention_days");
-    dataRetentionDays = savedRetention ?? 30;
-
-    // Cleanup old data based on retention policy
-    try {
-      const deleted = await cleanupOldData(dataRetentionDays);
-      if (deleted > 0) {
-        console.log(`Cleaned up ${deleted} old usage records`);
-      }
-    } catch (e) {
-      console.error("Failed to cleanup old data:", e);
-    }
-
-    // Send auto-refresh settings to backend
-    await invoke("set_auto_refresh", {
-      enabled: autoRefreshEnabled,
-      intervalMinutes: refreshIntervalMinutes,
-    });
-
     // Start countdown timer
-    startCountdown();
+    usageData.startCountdown();
   }
 
-  async function saveSettings() {
-    loading = true;
-    error = null;
-
-    try {
-      // Save credentials to backend (Stronghold + in-memory state)
-      // This triggers auto-refresh automatically
-      await invoke("save_credentials", {
-        orgId: orgIdInput,
-        sessionToken: tokenInput,
-      });
-
-      // Clear form inputs - credentials are now server-side only
-      orgIdInput = "";
-      tokenInput = "";
-
-      // Update configured state from backend
-      isConfigured = await invoke<boolean>("get_is_configured");
-
-      showSettings = false;
-    } catch (e) {
-      error = e instanceof Error ? e.message : "Failed to save settings";
-      loading = false;
-    }
+  function openAnalytics() {
+    analytics.open();
+    settings.showSettings = false;
   }
 
-  async function saveNotificationSettings(newSettings: NotificationSettings) {
-    notificationSettings = newSettings;
-    await store.set("notification_settings", newSettings);
+  function openSettings() {
+    settings.toggle();
+    analytics.showAnalytics = false;
   }
 
-  async function saveGeneralSettings(
-    newAutoRefreshEnabled: boolean,
-    newRefreshIntervalMinutes: number,
-  ) {
-    autoRefreshEnabled = newAutoRefreshEnabled;
-    refreshIntervalMinutes = newRefreshIntervalMinutes;
-
-    await store.set("auto_refresh_enabled", newAutoRefreshEnabled);
-    await store.set("refresh_interval_minutes", newRefreshIntervalMinutes);
-
-    // Send settings to backend (this will restart the auto-refresh loop)
-    await invoke("set_auto_refresh", {
-      enabled: newAutoRefreshEnabled,
-      intervalMinutes: newRefreshIntervalMinutes,
-    });
-  }
-
-  async function toggleAutostart(enabled: boolean) {
-    try {
-      if (enabled) {
-        await enableAutostart();
-      } else {
-        await disableAutostart();
-      }
-      autostartEnabled = enabled;
-    } catch (e) {
-      console.error("Failed to toggle autostart:", e);
-    }
-  }
-
-  async function saveDataRetention(days: number) {
-    dataRetentionDays = days;
-    await store.set("data_retention_days", days);
-
-    // Run cleanup with new retention policy
-    try {
-      const deleted = await cleanupOldData(days);
-      if (deleted > 0) {
-        console.log(`Cleaned up ${deleted} old usage records`);
-      }
-    } catch (e) {
-      console.error("Failed to cleanup old data:", e);
-    }
-  }
-
-  async function refreshNow() {
-    if (!isConfigured) {
-      return;
-    }
-
-    loading = true;
-    error = null;
-
-    // Trigger refresh via backend - it will emit usage-updated or usage-error event
-    await invoke("refresh_now");
-  }
-
-  async function loadAnalytics() {
-    analyticsLoading = true;
-    try {
-      analyticsHistory = await getUsageHistoryByRange(analyticsTimeRange);
-    } catch (e) {
-      console.error("Failed to load analytics:", e);
-    } finally {
-      analyticsLoading = false;
-    }
-  }
-
-  async function changeTimeRange(range: TimeRange) {
-    analyticsTimeRange = range;
-    await loadAnalytics();
-  }
-
-  async function openAnalytics() {
-    showAnalytics = true;
-    showSettings = false;
-    await loadAnalytics();
-  }
-
-  async function clearSettings() {
-    // Clear credentials from backend (Stronghold + in-memory state)
-    // This stops auto-refresh
-    await invoke("clear_credentials");
-
-    // Clear other settings from store
-    await store.clear();
-
-    // Reset state variables
-    refreshIntervalMinutes = 5;
-    autoRefreshEnabled = true;
-    isConfigured = false;
-    orgIdInput = "";
-    tokenInput = "";
-    usageData = null;
-    lastUpdateTime = null;
-    nextRefreshAt = null;
-    notificationSettings = getDefaultNotificationSettings();
-    notificationState = getDefaultNotificationState();
-    showSettings = false;
+  async function handleClearSettings() {
+    await settings.clearAll();
+    usageData.reset();
   }
 </script>
 
@@ -451,66 +110,63 @@
       <h1>
         <span class="claude">Claude</span> <span class="monitor">Monitor</span>
       </h1>
-      {#if isConfigured}
+      {#if settings.isConfigured}
         <div class="header-buttons">
           <button
             class="header-btn"
-            class:active={showAnalytics}
+            class:active={analytics.showAnalytics}
             onclick={() => {
-              if (showAnalytics) {
-                showAnalytics = false;
+              if (analytics.showAnalytics) {
+                analytics.close();
               } else {
                 openAnalytics();
               }
             }}
           >
-            {showAnalytics ? "Dashboard" : "Analytics"}
+            {analytics.showAnalytics ? "Dashboard" : "Analytics"}
           </button>
           <button
             class="header-btn"
-            class:active={showSettings}
-            onclick={() => {
-              showSettings = !showSettings;
-              showAnalytics = false;
-            }}
+            class:active={settings.showSettings}
+            onclick={openSettings}
           >
-            {showSettings ? "Dashboard" : "Settings"}
+            {settings.showSettings ? "Dashboard" : "Settings"}
           </button>
         </div>
       {/if}
     </header>
 
-    {#if !isConfigured || showSettings}
+    {#if !settings.isConfigured || settings.showSettings}
       <section class="setup">
-        <h2>{isConfigured ? "Settings" : "Setup"}</h2>
+        <h2>{settings.isConfigured ? "Settings" : "Setup"}</h2>
 
-        {#if isConfigured}
+        {#if settings.isConfigured}
           <div class="tabs">
             <button
               class="tab"
-              class:active={settingsTab === "credentials"}
-              onclick={() => (settingsTab = "credentials")}
+              class:active={settings.settingsTab === "credentials"}
+              onclick={() => (settings.settingsTab = "credentials")}
             >
               Credentials
             </button>
             <button
               class="tab"
-              class:active={settingsTab === "notifications"}
-              onclick={() => (settingsTab = "notifications")}
+              class:active={settings.settingsTab === "notifications"}
+              onclick={() => (settings.settingsTab = "notifications")}
             >
               Notifications
             </button>
             <button
               class="tab"
-              class:active={settingsTab === "general"}
-              onclick={() => (settingsTab = "general")}
+              class:active={settings.settingsTab === "general"}
+              onclick={() => (settings.settingsTab = "general")}
             >
               General
             </button>
           </div>
         {/if}
 
-        {#if settingsTab === "credentials" || !isConfigured}
+        {#if settings.settingsTab === "credentials" || !settings.isConfigured}
           <p class="hint">
             Enter your Claude organization ID and session token to view usage.
           </p>
@@ -518,14 +174,14 @@
           <form
             onsubmit={(e) => {
               e.preventDefault();
-              saveSettings();
+              settings.saveCredentials();
             }}
           >
             <label>
               Organization ID
               <input
                 type="text"
-                bind:value={orgIdInput}
+                bind:value={settings.orgIdInput}
                 placeholder="uuid-format-org-id"
                 required
               />
@@ -535,18 +191,22 @@
               Session Token
               <input
                 type="password"
-                bind:value={tokenInput}
+                bind:value={settings.tokenInput}
                 placeholder="Your session token"
                 required
               />
             </label>
 
             <div class="actions">
-              <button type="submit" disabled={loading}>
-                {loading ? "Saving..." : "Save"}
+              <button type="submit" disabled={settings.loading}>
+                {settings.loading ? "Saving..." : "Save"}
               </button>
-              {#if isConfigured}
-                <button type="button" class="danger" onclick={clearSettings}>
+              {#if settings.isConfigured}
+                <button
+                  type="button"
+                  class="danger"
+                  onclick={handleClearSettings}
+                >
                   Clear
                 </button>
               {/if}
@@ -565,36 +225,36 @@
               <li>Find the "sessionKey" cookie and copy its value</li>
             </ol>
           </details>
-        {:else if settingsTab === "notifications"}
+        {:else if settings.settingsTab === "notifications"}
           <div class="notification-settings-wrapper">
             <NotificationSettingsComponent
-              settings={notificationSettings}
-              onchange={saveNotificationSettings}
+              settings={settings.notificationSettings}
+              onchange={settings.saveNotifications}
             />
           </div>
-        {:else if settingsTab === "general"}
+        {:else if settings.settingsTab === "general"}
           <div class="general-settings">
             <label class="toggle-row">
               <input
                 type="checkbox"
-                checked={autoRefreshEnabled}
+                checked={settings.autoRefreshEnabled}
                 onchange={(e) =>
-                  saveGeneralSettings(
+                  settings.saveGeneral(
                     e.currentTarget.checked,
-                    refreshIntervalMinutes,
+                    settings.refreshIntervalMinutes,
                   )}
               />
               <span>Enable auto-refresh</span>
             </label>
 
-            {#if autoRefreshEnabled}
+            {#if settings.autoRefreshEnabled}
               <label class="select-row">
                 <span>Refresh interval</span>
                 <select
-                  value={refreshIntervalMinutes}
+                  value={settings.refreshIntervalMinutes}
                   onchange={(e) =>
-                    saveGeneralSettings(
-                      autoRefreshEnabled,
+                    settings.saveGeneral(
+                      settings.autoRefreshEnabled,
                       Number.parseInt(e.currentTarget.value, 10),
                     )}
                 >
@@ -611,8 +271,8 @@
             <label class="toggle-row">
               <input
                 type="checkbox"
-                checked={autostartEnabled}
-                onchange={(e) => toggleAutostart(e.currentTarget.checked)}
+                checked={settings.autostartEnabled}
+                onchange={(e) => settings.toggleAutostart(e.currentTarget.checked)}
               />
               <span>Start at login</span>
             </label>
@@ -620,9 +280,11 @@
             <label class="select-row">
               <span>Data retention</span>
               <select
-                value={dataRetentionDays}
+                value={settings.dataRetentionDays}
                 onchange={(e) =>
-                  saveDataRetention(Number.parseInt(e.currentTarget.value, 10))}
+                  settings.saveRetention(
+                    Number.parseInt(e.currentTarget.value, 10),
+                  )}
               >
                 <option value={7}>7 days</option>
                 <option value={14}>14 days</option>
@@ -634,7 +296,7 @@
           </div>
         {/if}
       </section>
-    {:else if showAnalytics}
+    {:else if analytics.showAnalytics}
       <section class="analytics">
         <h2>Usage Analytics</h2>
 
@@ -642,46 +304,46 @@
           <div class="time-range-selector">
             <button
               class="range-btn"
-              class:active={analyticsTimeRange === "1h"}
-              onclick={() => changeTimeRange("1h")}>1h</button
+              class:active={analytics.timeRange === "1h"}
+              onclick={() => analytics.changeTimeRange("1h")}>1h</button
             >
             <button
               class="range-btn"
-              class:active={analyticsTimeRange === "6h"}
-              onclick={() => changeTimeRange("6h")}>6h</button
+              class:active={analytics.timeRange === "6h"}
+              onclick={() => analytics.changeTimeRange("6h")}>6h</button
             >
             <button
               class="range-btn"
-              class:active={analyticsTimeRange === "24h"}
-              onclick={() => changeTimeRange("24h")}>24h</button
+              class:active={analytics.timeRange === "24h"}
+              onclick={() => analytics.changeTimeRange("24h")}>24h</button
             >
             <button
               class="range-btn"
-              class:active={analyticsTimeRange === "7d"}
-              onclick={() => changeTimeRange("7d")}>7d</button
+              class:active={analytics.timeRange === "7d"}
+              onclick={() => analytics.changeTimeRange("7d")}>7d</button
             >
             <button
               class="range-btn"
-              class:active={analyticsTimeRange === "30d"}
-              onclick={() => changeTimeRange("30d")}>30d</button
+              class:active={analytics.timeRange === "30d"}
+              onclick={() => analytics.changeTimeRange("30d")}>30d</button
             >
           </div>
 
           <div class="usage-type-filter">
             <label class="filter-item" style="--color: #3b82f6">
-              <input type="checkbox" bind:checked={showFiveHour} />
+              <input type="checkbox" bind:checked={analytics.showFiveHour} />
               <span>5h</span>
             </label>
             <label class="filter-item" style="--color: #8b5cf6">
-              <input type="checkbox" bind:checked={showSevenDay} />
+              <input type="checkbox" bind:checked={analytics.showSevenDay} />
               <span>7d</span>
             </label>
             <label class="filter-item" style="--color: #22c55e">
-              <input type="checkbox" bind:checked={showSonnet} />
+              <input type="checkbox" bind:checked={analytics.showSonnet} />
               <span>Sonnet</span>
             </label>
             <label class="filter-item" style="--color: #f59e0b">
-              <input type="checkbox" bind:checked={showOpus} />
+              <input type="checkbox" bind:checked={analytics.showOpus} />
               <span>Opus</span>
             </label>
           </div>
@@ -689,12 +351,12 @@
 
         <div class="chart-section">
           <UsageLineChart
-            data={analyticsHistory}
+            data={analytics.history}
             height={220}
-            {showFiveHour}
-            {showSevenDay}
-            {showSonnet}
-            {showOpus}
+            showFiveHour={analytics.showFiveHour}
+            showSevenDay={analytics.showSevenDay}
+            showSonnet={analytics.showSonnet}
+            showOpus={analytics.showOpus}
           />
         </div>
       </section>
@@ -703,34 +365,38 @@
         <div class="refresh-row">
           <div class="update-info">
             <span class="last-update"
-              >Updated: {formatLastUpdate(lastUpdateTime)}</span
+              >Updated: {formatLastUpdate(usageData.lastUpdateTime)}</span
             >
-            {#if autoRefreshEnabled}
+            {#if settings.autoRefreshEnabled}
               <span class="next-update"
-                >Next: {formatCountdown(secondsUntilNextUpdate)}</span
+                >Next: {formatCountdown(usageData.secondsUntilNextUpdate)}</span
               >
             {:else}
               <span class="next-update disabled">Auto-refresh off</span>
             {/if}
           </div>
-          <button class="refresh-btn" onclick={refreshNow} disabled={loading}>
-            {loading ? "Loading..." : "Refresh"}
+          <button
+            class="refresh-btn"
+            onclick={() => usageData.refreshNow()}
+            disabled={settings.loading}
+          >
+            {settings.loading ? "Loading..." : "Refresh"}
           </button>
         </div>
 
-        {#if loading && !usageData}
+        {#if settings.loading && !usageData.usageData}
           <div class="loading">Loading usage data...</div>
-        {:else if error}
+        {:else if settings.error}
           <div class="error">
-            <p>{error}</p>
-            <button onclick={refreshNow}>Retry</button>
+            <p>{settings.error}</p>
+            <button onclick={() => usageData.refreshNow()}>Retry</button>
           </div>
-        {:else if usageData}
+        {:else if usageData.usageData}
           <div class="usage-grid">
-            {@render usageCard("5 Hour", usageData.five_hour)}
-            {@render usageCard("7 Day", usageData.seven_day)}
-            {@render usageCard("Sonnet (7 Day)", usageData.seven_day_sonnet)}
-            {@render usageCard("Opus (7 Day)", usageData.seven_day_opus)}
+            {@render usageCard("5 Hour", usageData.usageData.five_hour)}
+            {@render usageCard("7 Day", usageData.usageData.seven_day)}
+            {@render usageCard("Sonnet (7 Day)", usageData.usageData.seven_day_sonnet)}
+            {@render usageCard("Opus (7 Day)", usageData.usageData.seven_day_opus)}
           </div>
         {:else}
           <div class="empty">No usage data available</div>
