@@ -1,15 +1,24 @@
 use reqwest::header::{HeaderMap, HeaderValue, COOKIE, USER_AGENT};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, Runtime,
 };
+use tauri_plugin_stronghold::stronghold::Stronghold;
 #[cfg(not(target_os = "macos"))]
 use tauri_plugin_positioner::{on_tray_event, Position, WindowExt};
 use thiserror::Error;
 use tokio::sync::{watch, Mutex};
+
+// ============================================================================
+// Stronghold Constants
+// ============================================================================
+
+const APP_IDENTIFIER: &str = "dev.xikxp1.claude-monitor.credentials.v1";
 
 // ============================================================================
 // Error Types
@@ -27,6 +36,8 @@ pub enum AppError {
     Server(String),
     #[error("Missing configuration: {0}")]
     MissingConfig(String),
+    #[error("Storage error: {0}")]
+    Storage(String),
 }
 
 impl Serialize for AppError {
@@ -176,6 +187,168 @@ pub struct AppState {
     pub config: Mutex<AutoRefreshConfig>,
     /// Channel to signal the refresh loop to restart
     pub restart_tx: watch::Sender<()>,
+    /// Path to the Stronghold file for credential storage
+    pub stronghold_path: PathBuf,
+}
+
+// ============================================================================
+// Input Validation
+// ============================================================================
+
+/// Validate session token format to prevent HTTP header injection.
+/// Allows alphanumeric characters, hyphens, underscores, periods, and base64 chars (+, /, =).
+fn validate_session_token(token: &str) -> Result<(), AppError> {
+    if token.is_empty() {
+        return Err(AppError::InvalidToken);
+    }
+
+    if token.len() > 4096 {
+        return Err(AppError::InvalidToken);
+    }
+
+    for c in token.chars() {
+        if !matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '+' | '/' | '=') {
+            eprintln!("Invalid character in session token: {:?}", c);
+            return Err(AppError::InvalidToken);
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate organization ID format (UUID-like).
+fn validate_org_id(org_id: &str) -> Result<(), AppError> {
+    if org_id.is_empty() {
+        return Err(AppError::MissingConfig("organization_id".to_string()));
+    }
+
+    if org_id.len() > 128 {
+        return Err(AppError::MissingConfig("organization_id too long".to_string()));
+    }
+
+    for c in org_id.chars() {
+        if !matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_') {
+            eprintln!("Invalid character in organization ID: {:?}", c);
+            return Err(AppError::MissingConfig("invalid organization_id format".to_string()));
+        }
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// Stronghold Storage
+// ============================================================================
+
+/// Derive a machine-specific 32-byte password from the app data directory path.
+/// This creates a unique password per user/machine without storing it anywhere.
+fn derive_stronghold_password(app_dir: &str) -> Vec<u8> {
+    let input = format!("{}:{}", APP_IDENTIFIER, app_dir);
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    hasher.finalize().to_vec()
+}
+
+/// Load credentials from Stronghold storage.
+/// Returns None if credentials don't exist or on any error.
+fn load_credentials_from_stronghold(
+    stronghold_path: &PathBuf,
+    password: &[u8],
+) -> Option<(String, String)> {
+    // Check if file exists
+    if !stronghold_path.exists() {
+        return None;
+    }
+
+    // Open existing Stronghold
+    let stronghold = match Stronghold::new(stronghold_path, password.to_vec()) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to open Stronghold: {:?}", e);
+            return None;
+        }
+    };
+
+    let store = stronghold.store();
+
+    // Get organization ID
+    let org_id_bytes = match store.get(b"organization_id") {
+        Ok(Some(bytes)) => bytes,
+        _ => return None,
+    };
+
+    // Get session token
+    let token_bytes = match store.get(b"session_token") {
+        Ok(Some(bytes)) => bytes,
+        _ => return None,
+    };
+
+    // Convert to strings
+    let org_id = String::from_utf8(org_id_bytes).ok()?;
+    let token = String::from_utf8(token_bytes).ok()?;
+
+    Some((org_id, token))
+}
+
+/// Save credentials to Stronghold storage.
+fn save_credentials_to_stronghold(
+    stronghold_path: &PathBuf,
+    password: &[u8],
+    org_id: &str,
+    session_token: &str,
+) -> Result<(), AppError> {
+    // Create or open Stronghold
+    let stronghold = Stronghold::new(stronghold_path, password.to_vec())
+        .map_err(|e| AppError::Storage(format!("Failed to open Stronghold: {:?}", e)))?;
+
+    let store = stronghold.store();
+
+    // Insert organization ID
+    store
+        .insert(b"organization_id".to_vec(), org_id.as_bytes().to_vec(), None)
+        .map_err(|e| AppError::Storage(format!("Failed to store organization_id: {:?}", e)))?;
+
+    // Insert session token
+    store
+        .insert(b"session_token".to_vec(), session_token.as_bytes().to_vec(), None)
+        .map_err(|e| AppError::Storage(format!("Failed to store session_token: {:?}", e)))?;
+
+    // Save to file
+    stronghold
+        .save()
+        .map_err(|e| AppError::Storage(format!("Failed to save Stronghold: {:?}", e)))?;
+
+    Ok(())
+}
+
+/// Delete credentials from Stronghold storage.
+fn delete_credentials_from_stronghold(stronghold_path: &PathBuf, password: &[u8]) -> Result<(), AppError> {
+    // If file doesn't exist, nothing to delete
+    if !stronghold_path.exists() {
+        return Ok(());
+    }
+
+    // Open existing Stronghold
+    let stronghold = match Stronghold::new(stronghold_path, password.to_vec()) {
+        Ok(s) => s,
+        Err(_) => {
+            // Can't open, nothing to delete
+            return Ok(());
+        }
+    };
+
+    let store = stronghold.store();
+
+    // Delete credentials (ignore errors if keys don't exist)
+    let _ = store.delete(b"organization_id");
+    let _ = store.delete(b"session_token");
+
+    // Save changes
+    stronghold
+        .save()
+        .map_err(|e| AppError::Storage(format!("Failed to save Stronghold: {:?}", e)))?;
+
+    Ok(())
 }
 
 // ============================================================================
@@ -183,6 +356,10 @@ pub struct AppState {
 // ============================================================================
 
 async fn fetch_usage_from_api(org_id: &str, session_token: &str) -> Result<UsageData, AppError> {
+    // Validate inputs before using in HTTP request
+    validate_org_id(org_id)?;
+    validate_session_token(session_token)?;
+
     let client = reqwest::Client::new();
 
     let mut headers = HeaderMap::new();
@@ -343,19 +520,70 @@ fn get_default_settings() -> Settings {
     Settings::default()
 }
 
-/// Set credentials and restart auto-refresh loop
+/// Save credentials to Stronghold and update in-memory state
 #[tauri::command]
-async fn set_credentials(
+async fn save_credentials(
     state: tauri::State<'_, Arc<AppState>>,
-    org_id: Option<String>,
-    session_token: Option<String>,
-) -> Result<(), ()> {
+    org_id: String,
+    session_token: String,
+) -> Result<(), AppError> {
+    // Validate inputs
+    validate_org_id(&org_id)?;
+    validate_session_token(&session_token)?;
+
+    // Derive encryption key from stronghold path's parent directory
+    let key = derive_stronghold_password(
+        state
+            .stronghold_path
+            .parent()
+            .and_then(|p| p.to_str())
+            .unwrap_or(""),
+    );
+
+    // Save to Stronghold
+    save_credentials_to_stronghold(&state.stronghold_path, &key, &org_id, &session_token)?;
+
+    // Update in-memory config
     let mut config = state.config.lock().await;
-    config.organization_id = org_id;
-    config.session_token = session_token;
+    config.organization_id = Some(org_id);
+    config.session_token = Some(session_token);
     drop(config);
 
     // Signal the loop to restart
+    let _ = state.restart_tx.send(());
+    Ok(())
+}
+
+/// Check if credentials are configured (without exposing them)
+#[tauri::command]
+async fn get_is_configured(state: tauri::State<'_, Arc<AppState>>) -> Result<bool, ()> {
+    let config = state.config.lock().await;
+    let is_configured = config.organization_id.is_some() && config.session_token.is_some();
+    Ok(is_configured)
+}
+
+/// Clear credentials from Stronghold and stop auto-refresh
+#[tauri::command]
+async fn clear_credentials(state: tauri::State<'_, Arc<AppState>>) -> Result<(), AppError> {
+    // Derive encryption key
+    let key = derive_stronghold_password(
+        state
+            .stronghold_path
+            .parent()
+            .and_then(|p| p.to_str())
+            .unwrap_or(""),
+    );
+
+    // Delete from Stronghold
+    delete_credentials_from_stronghold(&state.stronghold_path, &key)?;
+
+    // Clear in-memory config
+    let mut config = state.config.lock().await;
+    config.organization_id = None;
+    config.session_token = None;
+    drop(config);
+
+    // Signal the loop to restart (will stop since no credentials)
     let _ = state.restart_tx.send(());
     Ok(())
 }
@@ -498,26 +726,50 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_usage,
             get_default_settings,
-            set_credentials,
+            save_credentials,
+            get_is_configured,
+            clear_credentials,
             set_auto_refresh,
             refresh_now
         ])
         .setup(|app| {
-            // Initialize Stronghold with argon2 key derivation
-            let salt_path = app
+            // Determine Stronghold path
+            let app_data_dir = app
                 .path()
-                .app_local_data_dir()
-                .expect("could not resolve app local data path")
-                .join("salt.txt");
-            app.handle().plugin(
-                tauri_plugin_stronghold::Builder::with_argon2(&salt_path).build(),
-            )?;
+                .app_data_dir()
+                .expect("could not resolve app data path");
+
+            // Create directory if it doesn't exist
+            let _ = std::fs::create_dir_all(&app_data_dir);
+
+            let stronghold_path = app_data_dir.join("credentials.stronghold");
+
+            // Derive encryption key from app data directory
+            let key = derive_stronghold_password(app_data_dir.to_str().unwrap_or(""));
+
+            // Try to load credentials from Stronghold
+            let initial_credentials = load_credentials_from_stronghold(&stronghold_path, &key);
+
+            // Create initial config with loaded credentials
+            let initial_config = if let Some((org_id, token)) = initial_credentials {
+                eprintln!("Loaded credentials from Stronghold");
+                AutoRefreshConfig {
+                    organization_id: Some(org_id),
+                    session_token: Some(token),
+                    enabled: true,
+                    interval_minutes: 5,
+                }
+            } else {
+                eprintln!("No credentials found in Stronghold");
+                AutoRefreshConfig::default()
+            };
 
             // Create app state with watch channel for restart signals
             let (restart_tx, _) = watch::channel(());
             let state = Arc::new(AppState {
-                config: Mutex::new(AutoRefreshConfig::default()),
+                config: Mutex::new(initial_config),
                 restart_tx,
+                stronghold_path,
             });
 
             // Manage state

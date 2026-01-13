@@ -22,17 +22,9 @@
     processNotifications,
     resetNotificationStateIfNeeded,
   } from "$lib/notifications";
-  import {
-    deleteCredentials,
-    getCredentials,
-    initSecureStorage,
-    resetSecureStorage,
-    saveCredentials,
-  } from "$lib/secureStorage";
   import type {
     NotificationSettings,
     NotificationState,
-    Settings,
     UsageData,
     UsagePeriod,
   } from "$lib/types";
@@ -41,12 +33,10 @@
     getDefaultNotificationState,
   } from "$lib/types";
 
-  let settings: Settings = $state({
-    organization_id: null,
-    session_token: null,
-    refresh_interval_minutes: 5,
-    auto_refresh_enabled: true,
-  });
+  // Settings (no credentials - those are kept server-side only)
+  let refreshIntervalMinutes = $state(5);
+  let autoRefreshEnabled = $state(true);
+
   let usageData: UsageData | null = $state(null);
   let initializing = $state(true);
   let loading = $state(false);
@@ -54,6 +44,9 @@
   let showSettings = $state(false);
   let settingsTab: "credentials" | "notifications" | "general" =
     $state("credentials");
+
+  // Credentials are kept server-side, frontend only tracks if configured
+  let isConfigured = $state(false);
 
   // Notification state
   let notificationSettings: NotificationSettings = $state(
@@ -63,7 +56,7 @@
     getDefaultNotificationState(),
   );
 
-  // Form inputs
+  // Form inputs (temporary, cleared after save)
   let orgIdInput = $state("");
   let tokenInput = $state("");
 
@@ -90,10 +83,6 @@
   let showSevenDay = $state(true);
   let showSonnet = $state(true);
   let showOpus = $state(true);
-
-  const isConfigured = $derived(
-    settings.organization_id !== null && settings.session_token !== null,
-  );
 
   const store = new LazyStore("settings.json", {
     autoSave: true,
@@ -157,7 +146,7 @@
 
     // Update countdown every second based on nextRefreshAt
     countdownInterval = setInterval(() => {
-      if (nextRefreshAt && settings.auto_refresh_enabled) {
+      if (nextRefreshAt && autoRefreshEnabled) {
         const remaining = Math.max(0, Math.floor((nextRefreshAt - Date.now()) / 1000));
         secondsUntilNextUpdate = remaining;
       } else {
@@ -174,8 +163,6 @@
   }
 
   onMount(() => {
-    // Start secure storage initialization early (argon2 is slow)
-    initSecureStorage();
     // Initialize history storage for analytics
     initHistoryStorage();
 
@@ -237,28 +224,17 @@
       }),
     );
 
-    // Load credentials from secure storage (Stronghold)
-    try {
-      const credentials = await getCredentials();
-      settings.organization_id = credentials.organizationId;
-      settings.session_token = credentials.sessionToken;
-      orgIdInput = credentials.organizationId ?? "";
-      tokenInput = credentials.sessionToken ?? "";
-    } catch (e) {
-      console.error("Failed to load credentials:", e);
-    } finally {
-      initializing = false;
-    }
+    // Backend loads credentials from Stronghold on startup
+    // Just check if configured and mark initialization complete
+    isConfigured = await invoke<boolean>("get_is_configured");
+    initializing = false;
 
     // Load general settings from store
     const savedInterval = await store.get<number>("refresh_interval_minutes");
     const savedAutoRefresh = await store.get<boolean>("auto_refresh_enabled");
 
-    settings = {
-      ...settings,
-      refresh_interval_minutes: savedInterval ?? 5,
-      auto_refresh_enabled: savedAutoRefresh ?? true,
-    };
+    refreshIntervalMinutes = savedInterval ?? 5;
+    autoRefreshEnabled = savedAutoRefresh ?? true;
 
     // Load notification settings
     const savedNotificationSettings = await store.get<NotificationSettings>(
@@ -296,14 +272,10 @@
       console.error("Failed to cleanup old data:", e);
     }
 
-    // Send credentials and settings to backend to start auto-refresh
-    await invoke("set_credentials", {
-      orgId: settings.organization_id,
-      sessionToken: settings.session_token,
-    });
+    // Send auto-refresh settings to backend
     await invoke("set_auto_refresh", {
-      enabled: settings.auto_refresh_enabled,
-      intervalMinutes: settings.refresh_interval_minutes,
+      enabled: autoRefreshEnabled,
+      intervalMinutes: refreshIntervalMinutes,
     });
 
     // Start countdown timer
@@ -315,20 +287,19 @@
     error = null;
 
     try {
-      // Save credentials to secure storage (Stronghold)
-      await saveCredentials(orgIdInput, tokenInput);
-
-      settings = {
-        ...settings,
-        organization_id: orgIdInput,
-        session_token: tokenInput,
-      };
-
-      // Send credentials to backend (this will trigger auto-refresh)
-      await invoke("set_credentials", {
+      // Save credentials to backend (Stronghold + in-memory state)
+      // This triggers auto-refresh automatically
+      await invoke("save_credentials", {
         orgId: orgIdInput,
         sessionToken: tokenInput,
       });
+
+      // Clear form inputs - credentials are now server-side only
+      orgIdInput = "";
+      tokenInput = "";
+
+      // Update configured state from backend
+      isConfigured = await invoke<boolean>("get_is_configured");
 
       showSettings = false;
     } catch (e) {
@@ -343,21 +314,19 @@
   }
 
   async function saveGeneralSettings(
-    autoRefreshEnabled: boolean,
-    refreshIntervalMinutes: number,
+    newAutoRefreshEnabled: boolean,
+    newRefreshIntervalMinutes: number,
   ) {
-    settings = {
-      ...settings,
-      auto_refresh_enabled: autoRefreshEnabled,
-      refresh_interval_minutes: refreshIntervalMinutes,
-    };
-    await store.set("auto_refresh_enabled", autoRefreshEnabled);
-    await store.set("refresh_interval_minutes", refreshIntervalMinutes);
+    autoRefreshEnabled = newAutoRefreshEnabled;
+    refreshIntervalMinutes = newRefreshIntervalMinutes;
+
+    await store.set("auto_refresh_enabled", newAutoRefreshEnabled);
+    await store.set("refresh_interval_minutes", newRefreshIntervalMinutes);
 
     // Send settings to backend (this will restart the auto-refresh loop)
     await invoke("set_auto_refresh", {
-      enabled: autoRefreshEnabled,
-      intervalMinutes: refreshIntervalMinutes,
+      enabled: newAutoRefreshEnabled,
+      intervalMinutes: newRefreshIntervalMinutes,
     });
   }
 
@@ -390,7 +359,7 @@
   }
 
   async function refreshNow() {
-    if (!settings.organization_id || !settings.session_token) {
+    if (!isConfigured) {
       return;
     }
 
@@ -424,19 +393,17 @@
   }
 
   async function clearSettings() {
-    // Delete credentials from secure storage
-    await deleteCredentials();
-    resetSecureStorage();
+    // Clear credentials from backend (Stronghold + in-memory state)
+    // This stops auto-refresh
+    await invoke("clear_credentials");
 
     // Clear other settings from store
     await store.clear();
 
-    settings = {
-      organization_id: null,
-      session_token: null,
-      refresh_interval_minutes: 5,
-      auto_refresh_enabled: true,
-    };
+    // Reset state variables
+    refreshIntervalMinutes = 5;
+    autoRefreshEnabled = true;
+    isConfigured = false;
     orgIdInput = "";
     tokenInput = "";
     usageData = null;
@@ -445,12 +412,6 @@
     notificationSettings = getDefaultNotificationSettings();
     notificationState = getDefaultNotificationState();
     showSettings = false;
-
-    // Clear credentials in backend (this stops auto-refresh)
-    await invoke("set_credentials", {
-      orgId: null,
-      sessionToken: null,
-    });
   }
 </script>
 
@@ -616,24 +577,24 @@
             <label class="toggle-row">
               <input
                 type="checkbox"
-                checked={settings.auto_refresh_enabled}
+                checked={autoRefreshEnabled}
                 onchange={(e) =>
                   saveGeneralSettings(
                     e.currentTarget.checked,
-                    settings.refresh_interval_minutes,
+                    refreshIntervalMinutes,
                   )}
               />
               <span>Enable auto-refresh</span>
             </label>
 
-            {#if settings.auto_refresh_enabled}
+            {#if autoRefreshEnabled}
               <label class="select-row">
                 <span>Refresh interval</span>
                 <select
-                  value={settings.refresh_interval_minutes}
+                  value={refreshIntervalMinutes}
                   onchange={(e) =>
                     saveGeneralSettings(
-                      settings.auto_refresh_enabled,
+                      autoRefreshEnabled,
                       Number.parseInt(e.currentTarget.value, 10),
                     )}
                 >
@@ -744,7 +705,7 @@
             <span class="last-update"
               >Updated: {formatLastUpdate(lastUpdateTime)}</span
             >
-            {#if settings.auto_refresh_enabled}
+            {#if autoRefreshEnabled}
               <span class="next-update"
                 >Next: {formatCountdown(secondsUntilNextUpdate)}</span
               >

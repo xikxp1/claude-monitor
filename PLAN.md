@@ -177,15 +177,20 @@ Complete implementation plan for Claude Monitor.
 
 ### Phase 7: Secure Token Storage
 
-#### 7.1 Stronghold Integration
-- [x] Add `tauri-plugin-stronghold` (Rust + npm)
-- [x] Add permissions to capabilities (initialize, save, create-client, etc.)
-- [x] Initialize Stronghold plugin with key derivation
-- [x] Create `secureStorage.ts` utility module
-- [x] Migrate credentials from plain store to encrypted Stronghold storage
-- [x] Update initApp to load credentials from Stronghold
-- [x] Update saveSettings to save credentials to Stronghold
-- [x] Update clearSettings to delete credentials from Stronghold
+#### 7.1 Stronghold Integration (Rust Backend)
+- [x] Add `tauri-plugin-stronghold` (Rust only - uses Stronghold wrapper directly)
+- [x] Implement Rust functions for Stronghold access:
+  - `derive_stronghold_password()` - Machine-specific password derivation (SHA-256)
+  - `load_credentials_from_stronghold()` - Load credentials on app startup
+  - `save_credentials_to_stronghold()` - Save credentials to encrypted storage
+  - `delete_credentials_from_stronghold()` - Clear credentials from storage
+- [x] Load credentials from Stronghold in setup function (before auto-refresh starts)
+- [x] `save_credentials` command - Validates, saves to Stronghold, updates in-memory state
+- [x] `clear_credentials` command - Deletes from Stronghold and clears state
+- [x] `get_is_configured` command - Check if credentials exist without exposing them
+- [x] Credentials never pass through frontend - only exist in:
+  - User form input (briefly, during setup)
+  - Rust backend (memory + encrypted Stronghold file)
 
 ### Phase 8: Charts & Usage Analytics
 
@@ -253,9 +258,10 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
 ### Immediate (Critical - Security)
 
 #### Secure Storage Improvements
-- [ ] Remove hardcoded Stronghold password - derive from system/user auth
-- [ ] Add session token format validation before HTTP header injection
-- [ ] Keep credentials server-side only (don't expose in frontend state)
+- [x] Remove hardcoded Stronghold password - derive from machine-specific data (SHA-256 hash of app data path)
+- [x] Add session token format validation before HTTP header injection
+- [x] Add organization ID format validation
+- [x] Keep credentials server-side only (don't expose in frontend state)
 
 ### Immediate (High Priority - Stability)
 
@@ -360,7 +366,6 @@ chrono = { version = "0.4", features = ["serde"] }
     "@tauri-apps/plugin-autostart": "^2",
     "@tauri-apps/plugin-notification": "^2",
     "@tauri-apps/plugin-store": "^2",
-    "@tauri-apps/plugin-stronghold": "^2",
     "@tauri-apps/plugin-sql": "^2",
     "d3-scale": "^4"
   },
@@ -369,6 +374,8 @@ chrono = { version = "0.4", features = ["serde"] }
   }
 }
 ```
+
+Note: `@tauri-apps/plugin-stronghold` npm package is NOT needed - Stronghold is accessed entirely from Rust backend.
 
 ---
 
@@ -386,7 +393,6 @@ claude-monitor/
 │   │   │       ├── UsageStats.svelte         # Summary statistics
 │   │   │       └── ChartContainer.svelte     # Reusable wrapper
 │   │   ├── notifications.ts                  # Notification logic
-│   │   ├── secureStorage.ts                  # Stronghold secure storage utility
 │   │   ├── historyStorage.ts                 # Phase 8: SQLite history storage
 │   │   └── types.ts                          # TypeScript types
 │   ├── routes/
@@ -477,16 +483,24 @@ The Claude usage API returns:
 - **macOS**: Uses NSPopover for proper fullscreen support, auto-hides on focus loss
 - **Windows/Linux**: Uses positioner plugin, manual hide on focus loss, always-on-top window
 
-### Stronghold Secure Storage
-- Uses `tauri-plugin-stronghold` for encrypted credential storage
-- Credentials stored in `credentials.stronghold` file in app data directory
-- Provides cross-platform encrypted storage (not OS keychain, but Tauri's own secure format)
-- Key derivation using built-in **argon2** via `Builder::with_argon2(&salt_path)`
-- Salt stored in `salt.txt` in app local data directory
-- Plugin initialized in setup function to access app paths
-- `secureStorage.ts` utility provides: `saveCredentials()`, `getCredentials()`, `deleteCredentials()`, `initSecureStorage()`, `resetSecureStorage()`
-- Organization ID and session token stored separately in Stronghold store
-- **Performance optimization**: Uses singleton promise pattern to handle slow argon2 initialization; call `initSecureStorage()` early in app startup
+### Stronghold Secure Storage (Rust Backend)
+- Uses `tauri-plugin-stronghold`'s Stronghold wrapper for encrypted credential storage
+- **Credentials never pass through frontend** - stored only in:
+  - Rust backend memory (for API calls)
+  - Encrypted Stronghold file (`credentials.stronghold` in app data directory)
+- Password derivation: SHA-256 hash of `APP_IDENTIFIER:app_data_dir`
+  - Deterministic per user/machine without storing password anywhere
+  - 32-byte key as required by Stronghold
+- Rust functions:
+  - `derive_stronghold_password()` - Machine-specific password derivation
+  - `load_credentials_from_stronghold()` - Called in setup, loads on app start
+  - `save_credentials_to_stronghold()` - Called by `save_credentials` command
+  - `delete_credentials_from_stronghold()` - Called by `clear_credentials` command
+- Tauri commands for frontend:
+  - `save_credentials(org_id, session_token)` - Validates, saves, updates state
+  - `clear_credentials()` - Deletes and clears state
+  - `get_is_configured()` - Returns boolean without exposing credentials
+- No npm package needed - frontend only calls Tauri commands
 
 ### Charts & Analytics (Phase 8)
 - **Charting Library**: Layercake recommended for Svelte-native experience
