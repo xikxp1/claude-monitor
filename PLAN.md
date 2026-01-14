@@ -383,4 +383,18 @@ Critical issues to fix before the first public release.
 
 #### Distribution
 - [x] App icon design (all sizes)
-- [ ] GitHub releases
+- [x] GitHub releases:
+  - CI workflow (`.github/workflows/ci.yml`): Runs tests and builds on PRs/pushes to main
+  - Release workflow (`.github/workflows/release.yml`): Builds signed releases on version tags
+  - Platforms: macOS (Universal), Windows, Linux
+  - Updater signing with minisign keys
+- [x] Auto-update system using tauri-plugin-updater:
+  - Backend: `tauri-plugin-updater` and `tauri-plugin-process` plugins
+  - Frontend: `useUpdates.svelte.ts` composable for update state management
+  - Settings UI: "Updates" tab with check/download/install workflow
+  - Tray menu: "Check for Updates" option
+  - Endpoints: GitHub releases (latest.json)
+  - Features: Progress tracking, error handling, app restart after install
+  - Background check: Automatically checks for updates 3s after startup
+  - Update banner: Shows clickable banner on dashboard when update available
+  - Settings badge: Blue dot indicator on Settings button when update available

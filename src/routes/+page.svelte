@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import UsageLineChart from "$lib/components/charts/UsageLineChart.svelte";
   import NotificationSettingsComponent from "$lib/components/NotificationSettings.svelte";
   import ToastContainer from "$lib/components/ToastContainer.svelte";
-  import { useAnalytics, useSettings, useToast, useUsageData } from "$lib/composables";
+  import { useAnalytics, useSettings, useToast, useUpdates, useUsageData } from "$lib/composables";
   import { initHistoryStorage } from "$lib/historyStorage";
   import type { UsagePeriod } from "$lib/types";
   import {
@@ -33,7 +34,11 @@
     isConfigured: () => settings.isConfigured,
   });
 
+  // Updates composable for auto-update functionality
+  const updates = useUpdates();
+
   let initializing = $state(true);
+  let unlistenCheckUpdates: UnlistenFn | null = null;
 
   onMount(() => {
     initHistoryStorage();
@@ -41,12 +46,22 @@
 
     return () => {
       usageData.cleanup();
+      unlistenCheckUpdates?.();
     };
   });
 
   async function initApp() {
     // Set up event listeners for backend events
     await usageData.setupEventListeners();
+
+    // Listen for check-for-updates event from tray menu
+    unlistenCheckUpdates = await listen("check-for-updates", async () => {
+      // Open settings to Updates tab and trigger check
+      analytics.showAnalytics = false;
+      settings.showSettings = true;
+      settings.settingsTab = "updates";
+      await updates.checkForUpdates();
+    });
 
     // Initialize settings (loads from store and backend)
     await settings.init();
@@ -55,6 +70,11 @@
 
     // Start countdown timer
     usageData.startCountdown();
+
+    // Check for updates in background after a short delay
+    setTimeout(() => {
+      updates.checkForUpdates();
+    }, 3000);
   }
 
   function openAnalytics() {
@@ -149,10 +169,13 @@
             {analytics.showAnalytics ? "Dashboard" : "Analytics"}
           </button>
           <button
-            class="btn btn-sm {settings.showSettings ? 'btn-primary' : 'btn-soft'}"
+            class="btn btn-sm {settings.showSettings ? 'btn-primary' : 'btn-soft'} relative"
             onclick={openSettings}
           >
             {settings.showSettings ? "Dashboard" : "Settings"}
+            {#if updates.isUpdateAvailable && !settings.showSettings}
+              <span class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-info rounded-full"></span>
+            {/if}
           </button>
         </div>
       {/if}
@@ -181,6 +204,12 @@
               onclick={() => (settings.settingsTab = "general")}
             >
               General
+            </button>
+            <button
+              class="join-item btn btn-sm flex-1 {settings.settingsTab === 'updates' ? 'btn-primary' : 'btn-ghost'}"
+              onclick={() => (settings.settingsTab = "updates")}
+            >
+              Updates
             </button>
           </div>
         {/if}
@@ -361,6 +390,104 @@
               </div>
             {/if}
           </div>
+        {:else if settings.settingsTab === "updates"}
+          <div class="flex flex-col gap-4 mt-2">
+            {#if updates.status === "idle" || updates.status === "up-to-date"}
+              <div class="text-sm text-base-content/60">
+                {#if updates.lastChecked}
+                  Last checked: {updates.lastChecked.toLocaleString()}
+                {:else}
+                  Updates have not been checked yet.
+                {/if}
+              </div>
+              {#if updates.status === "up-to-date"}
+                <div class="flex items-center gap-2 text-success">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                  </svg>
+                  <span class="font-medium">You're up to date!</span>
+                </div>
+              {/if}
+              <button
+                class="btn btn-primary btn-sm"
+                onclick={() => updates.checkForUpdates()}
+                disabled={updates.isChecking}
+              >
+                Check for Updates
+              </button>
+            {:else if updates.status === "checking"}
+              <div class="flex items-center gap-3">
+                <span class="loading loading-spinner loading-sm"></span>
+                <span>Checking for updates...</span>
+              </div>
+            {:else if updates.status === "available"}
+              <div class="card bg-base-200 p-4">
+                <div class="flex items-center gap-2 text-info mb-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                  </svg>
+                  <span class="font-medium">Update Available</span>
+                </div>
+                {#if updates.availableUpdate}
+                  <p class="text-sm mb-3">Version {updates.availableUpdate.version} is available.</p>
+                {/if}
+                <button
+                  class="btn btn-primary btn-sm"
+                  onclick={() => updates.downloadAndInstall()}
+                >
+                  Download and Install
+                </button>
+              </div>
+            {:else if updates.status === "downloading"}
+              <div class="flex flex-col gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="loading loading-spinner loading-sm"></span>
+                  <span>Downloading update...</span>
+                </div>
+                <progress
+                  class="progress progress-primary w-full"
+                  value={updates.progressPercent}
+                  max="100"
+                ></progress>
+                <div class="text-xs text-base-content/60 text-center">
+                  {updates.formatBytes(updates.progress.downloaded)}
+                  {#if updates.progress.contentLength}
+                    / {updates.formatBytes(updates.progress.contentLength)}
+                  {/if}
+                  ({updates.progressPercent}%)
+                </div>
+              </div>
+            {:else if updates.status === "ready"}
+              <div class="card bg-success/10 p-4">
+                <div class="flex items-center gap-2 text-success mb-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                  </svg>
+                  <span class="font-medium">Update Ready</span>
+                </div>
+                <p class="text-sm mb-3">The update has been downloaded and is ready to install.</p>
+                <button
+                  class="btn btn-success btn-sm"
+                  onclick={() => updates.restartApp()}
+                >
+                  Restart Now
+                </button>
+              </div>
+            {:else if updates.status === "error"}
+              <div class="alert alert-error text-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current h-5 w-5" fill="none" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>{updates.error}</span>
+              </div>
+              <button
+                class="btn btn-ghost btn-sm"
+                onclick={() => updates.reset()}
+              >
+                Try Again
+              </button>
+            {/if}
+          </div>
         {/if}
       </section>
     {:else if analytics.showAnalytics}
@@ -426,6 +553,24 @@
       </section>
     {:else}
       <section class="flex flex-col gap-2.5 flex-1 overflow-y-auto px-2">
+        {#if updates.isUpdateAvailable}
+          <button
+            class="alert alert-info text-sm py-2 cursor-pointer hover:brightness-95 transition-all"
+            onclick={() => {
+              settings.showSettings = true;
+              settings.settingsTab = "updates";
+            }}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v3.586L7.707 9.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 10.586V7z" clip-rule="evenodd" />
+            </svg>
+            <span>
+              Update available{#if updates.availableUpdate}: v{updates.availableUpdate.version}{/if}
+            </span>
+            <span class="text-xs opacity-70">Click to update</span>
+          </button>
+        {/if}
+
         <div class="flex justify-between items-center">
           <div class="flex flex-col text-xs text-base-content/60">
             <span>Updated: {formatSecondsAgo(usageData.secondsSinceLastUpdate)}</span>

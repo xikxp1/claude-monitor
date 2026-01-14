@@ -1,8 +1,8 @@
 use crate::types::UsageData;
 use tauri::{
-    menu::{Menu, MenuItemBuilder, PredefinedMenuItem},
+    menu::{Menu, MenuEvent, MenuItemBuilder, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Runtime,
+    Emitter, Runtime,
 };
 #[cfg(not(target_os = "macos"))]
 use tauri_plugin_positioner::{on_tray_event, Position, WindowExt};
@@ -36,6 +36,13 @@ pub fn update_tray_tooltip<R: Runtime>(app: &tauri::AppHandle<R>, usage: Option<
     }
 }
 
+fn handle_menu_event<R: Runtime>(app: &tauri::AppHandle<R>, event: MenuEvent) {
+    if event.id().as_ref() == "check_updates" {
+        // Emit event to frontend to trigger update check
+        let _ = app.emit("check-for-updates", ());
+    }
+}
+
 pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
     // Get app name and version
     let package_info = app.package_info();
@@ -45,10 +52,12 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
     let app_info = MenuItemBuilder::with_id("app_info", &app_label)
         .enabled(false)
         .build(app)?;
+    let check_updates = MenuItemBuilder::with_id("check_updates", "Check for Updates")
+        .build(app)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit_i = PredefinedMenuItem::quit(app, Some("Quit"))?;
 
-    let menu = Menu::with_items(app, &[&app_info, &separator, &quit_i])?;
+    let menu = Menu::with_items(app, &[&app_info, &check_updates, &separator, &quit_i])?;
 
     let icon = app
         .default_window_icon()
@@ -60,7 +69,7 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
         .tooltip("Claude Monitor")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        // No custom menu event handling needed - PredefinedMenuItem::quit handles quit automatically
+        .on_menu_event(handle_menu_event)
         .on_tray_icon_event(|tray, event| {
             let app = tray.app_handle();
 

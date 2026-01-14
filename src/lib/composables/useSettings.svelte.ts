@@ -28,7 +28,7 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
 
   // UI state
   let showSettings = $state(false);
-  let settingsTab: "credentials" | "notifications" | "general" =
+  let settingsTab: "credentials" | "notifications" | "general" | "updates" =
     $state("credentials");
 
   // Credentials state (form inputs only - actual credentials are server-side)
@@ -334,7 +334,7 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     get settingsTab() {
       return settingsTab;
     },
-    set settingsTab(value: "credentials" | "notifications" | "general") {
+    set settingsTab(value: "credentials" | "notifications" | "general" | "updates") {
       settingsTab = value;
     },
 

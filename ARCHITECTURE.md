@@ -47,6 +47,7 @@ claude-monitor/
 │   │   │   ├── index.ts                      # Re-exports
 │   │   │   ├── useAnalytics.svelte.ts        # Analytics state & actions
 │   │   │   ├── useSettings.svelte.ts         # Settings, credentials, notifications
+│   │   │   ├── useUpdates.svelte.ts          # Auto-update state & actions
 │   │   │   └── useUsageData.svelte.ts        # Usage data, events, countdown, visibility handling
 │   │   ├── utils/                            # Pure utility functions
 │   │   │   ├── index.ts                      # Re-exports
@@ -200,3 +201,48 @@ The Claude usage API returns:
   - `get_usage_stats(range)` - Get statistics (current, change, velocity) for time range
   - `cleanup_history(retentionDays)` - Delete old records
 - **Retention Policy**: Default 30 days, configurable in settings
+
+## Auto-Update System
+- **Backend Plugins**: `tauri-plugin-updater` for checking/downloading updates, `tauri-plugin-process` for app restart
+- **Update Endpoints**: GitHub releases - `https://github.com/xikxp1/claude-monitor/releases/latest/download/latest.json`
+- **Frontend Composable**: `useUpdates.svelte.ts` manages update state:
+  - Status states: `idle`, `checking`, `available`, `downloading`, `ready`, `error`, `up-to-date`
+  - Progress tracking for downloads
+  - Actions: `checkForUpdates()`, `downloadAndInstall()`, `restartApp()`
+- **UI Integration**:
+  - Settings "Updates" tab with full update workflow
+  - Tray menu "Check for Updates" option (emits `check-for-updates` event)
+  - Background check: Runs 3 seconds after app startup
+  - Update banner: Clickable info banner on dashboard when update available
+  - Settings badge: Blue dot indicator on Settings button when update available
+- **Permissions**: `updater:default`, `process:allow-restart`
+- **Build Config**: `createUpdaterArtifacts: true` in `tauri.conf.json`
+
+## CI/CD
+
+### GitHub Actions Workflows
+
+**CI (`.github/workflows/ci.yml`)**:
+- Triggers on: Push to main, PRs to main
+- Jobs:
+  - `test`: Lint, type check, frontend tests, Rust tests (Ubuntu only)
+  - `build`: Build for all platforms after tests pass
+
+**Release (`.github/workflows/release.yml`)**:
+- Triggers on: Version tags (`v*`), manual dispatch
+- Builds signed releases for macOS (Universal), Windows, Linux
+- Creates draft GitHub release with updater artifacts
+
+### Release Process
+
+1. Update version in `src-tauri/tauri.conf.json`
+2. Commit and push
+3. Create and push tag: `git tag v0.x.x && git push origin v0.x.x`
+4. Release workflow builds and creates draft release
+5. Review and publish the draft release
+
+### Required Secrets
+
+- `TAURI_SIGNING_PRIVATE_KEY`: Minisign private key for signing updates
+  - Generate with: `bunx tauri signer generate --ci -w ~/.tauri/claude-monitor.key`
+  - Add the contents of the `.key` file as the secret

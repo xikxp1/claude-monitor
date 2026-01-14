@@ -65,6 +65,11 @@ pub fn run() {
     #[cfg(not(target_os = "macos"))]
     let app_builder = app_builder.plugin(tauri_plugin_positioner::init());
 
+    // Add updater and process plugins for auto-updates
+    let app_builder = app_builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
+
     app_builder
         .invoke_handler(builder.invoke_handler())
         .setup(|app| {

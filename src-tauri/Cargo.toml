@@ -34,6 +34,8 @@ rusqlite = { version = "0.38", features = ["bundled"] }
 specta = { version = "2.0.0-rc.22", features = ["derive", "function", "serde", "tokio"] }
 specta-typescript = "0.0.9"
 tauri-specta = { version = "2.0.0-rc.21", features = ["derive", "typescript"] }
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 # macOS-only: NSPopover for native popover behavior
 [target.'cfg(target_os = "macos")'.dependencies]
