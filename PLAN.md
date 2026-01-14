@@ -279,7 +279,7 @@ Critical issues to fix before the first public release.
   - `src-tauri/src/auto_refresh.rs:24,67` - `eprintln!` for snapshot/refresh errors
   - `src-tauri/src/lib.rs:91` - `eprintln!` for database init failure
   - `src/lib/composables/useSettings.svelte.ts:96,204` - `console.log` for cleanup
-- [ ] **Set Content Security Policy** - `tauri.conf.json:26` has `"csp": null`. Add proper CSP for security.
+- [x] **Set Content Security Policy** - `tauri.conf.json:26` has `"csp": null`. Add proper CSP for security.
 
 #### Documentation
 - [x] **Fix README test command** - README mentions `bun run test` but no test script exists in package.json. Either add tests or remove the section.
