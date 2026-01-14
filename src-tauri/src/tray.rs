@@ -1,9 +1,8 @@
-use crate::types::{AppState, UsageData};
-use std::sync::Arc;
+use crate::types::UsageData;
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuItemBuilder, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, Runtime,
+    Runtime,
 };
 #[cfg(not(target_os = "macos"))]
 use tauri_plugin_positioner::{on_tray_event, Position, WindowExt};
@@ -38,11 +37,18 @@ pub fn update_tray_tooltip<R: Runtime>(app: &tauri::AppHandle<R>, usage: Option<
 }
 
 pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
-    let show_i = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
-    let refresh_i = MenuItem::with_id(app, "refresh", "Refresh", true, None::<&str>)?;
-    let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    // Get app name and version
+    let package_info = app.package_info();
+    let app_label = format!("{} v{}", package_info.name, package_info.version);
 
-    let menu = Menu::with_items(app, &[&show_i, &refresh_i, &quit_i])?;
+    // Create menu items
+    let app_info = MenuItemBuilder::with_id("app_info", &app_label)
+        .enabled(false)
+        .build(app)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let quit_i = PredefinedMenuItem::quit(app, Some("Quit"))?;
+
+    let menu = Menu::with_items(app, &[&app_info, &separator, &quit_i])?;
 
     let icon = app
         .default_window_icon()
@@ -54,24 +60,7 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
         .tooltip("Claude Monitor")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "show" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
-            "refresh" => {
-                // Trigger refresh via state
-                if let Some(state) = app.try_state::<Arc<AppState>>() {
-                    let _ = state.restart_tx.send(());
-                }
-            }
-            "quit" => {
-                app.exit(0);
-            }
-            _ => {}
-        })
+        // No custom menu event handling needed - PredefinedMenuItem::quit handles quit automatically
         .on_tray_icon_event(|tray, event| {
             let app = tray.app_handle();
 
