@@ -19,10 +19,8 @@ pub async fn do_fetch_and_emit(app: &tauri::AppHandle, state: &AppState, interva
                 // Update tray tooltip
                 update_tray_tooltip(app, Some(&usage));
 
-                // Save usage snapshot for analytics
-                if let Err(e) = save_usage_snapshot(&usage) {
-                    eprintln!("Failed to save usage snapshot: {}", e);
-                }
+                // Save usage snapshot for analytics (ignore errors silently)
+                let _ = save_usage_snapshot(&usage);
 
                 // Process notifications
                 {
@@ -64,7 +62,6 @@ pub async fn do_fetch_and_emit(app: &tauri::AppHandle, state: &AppState, interva
                 );
             }
             Err(e) => {
-                eprintln!("Auto-refresh error: {}", e);
                 let _ = app.emit(
                     "usage-error",
                     UsageErrorEvent {

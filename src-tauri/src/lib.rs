@@ -86,10 +86,8 @@ pub fn run() {
                 Err(_) => NotificationState::default(),
             };
 
-            // Initialize history database
-            if let Err(e) = history::init_database(app.handle()) {
-                eprintln!("Failed to initialize history database: {}", e);
-            }
+            // Initialize history database (ignore errors - analytics is non-critical)
+            let _ = history::init_database(app.handle());
 
             // Create app state with watch channel for restart signals
             let (restart_tx, _) = watch::channel(());

@@ -91,12 +91,9 @@ export function useSettings() {
 
     // Cleanup old data based on retention policy
     try {
-      const deleted = await cleanupOldData(dataRetentionDays);
-      if (deleted > 0) {
-        console.log(`Cleaned up ${deleted} old usage records`);
-      }
-    } catch (e) {
-      console.error("Failed to cleanup old data:", e);
+      await cleanupOldData(dataRetentionDays);
+    } catch {
+      // Ignore cleanup errors - non-critical
     }
 
     // Send auto-refresh settings to backend
@@ -198,13 +195,9 @@ export function useSettings() {
 
     try {
       await store.set("data_retention_days", days);
-
-      const deleted = await cleanupOldData(days);
-      if (deleted > 0) {
-        console.log(`Cleaned up ${deleted} old usage records`);
-      }
-    } catch (e) {
-      console.error("Failed to save data retention settings:", e);
+      await cleanupOldData(days);
+    } catch {
+      // Ignore errors - non-critical
     }
   }
 

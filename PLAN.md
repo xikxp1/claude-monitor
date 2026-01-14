@@ -273,7 +273,7 @@ Critical issues to fix before the first public release.
 
 #### Code Quality
 - [x] **Fix tray icon unwrap panic** - `src-tauri/src/tray.rs:48` uses `.unwrap()` on `default_window_icon()` which could panic if icon is missing. Replace with proper error handling.
-- [ ] **Remove debug logging** - Production builds should not include debug output:
+- [x] **Remove debug logging** - Production builds should not include debug output:
   - `src-tauri/src/validation.rs:16,36` - `eprintln!` for invalid characters
   - `src-tauri/src/api.rs:35,36,45` - `eprintln!` for parse/HTTP errors
   - `src-tauri/src/auto_refresh.rs:24,67` - `eprintln!` for snapshot/refresh errors

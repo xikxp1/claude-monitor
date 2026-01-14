@@ -13,7 +13,6 @@ pub fn validate_session_token(token: &str) -> Result<(), AppError> {
 
     for c in token.chars() {
         if !matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '+' | '/' | '=') {
-            eprintln!("Invalid character in session token: {:?}", c);
             return Err(AppError::InvalidToken);
         }
     }
@@ -33,7 +32,6 @@ pub fn validate_org_id(org_id: &str) -> Result<(), AppError> {
 
     for c in org_id.chars() {
         if !matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_') {
-            eprintln!("Invalid character in organization ID: {:?}", c);
             return Err(AppError::MissingConfig(
                 "invalid organization_id format".to_string(),
             ));
