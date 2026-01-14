@@ -21,8 +21,6 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-store = "2"
-tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
-tauri-plugin-nspopover = { git = "https://github.com/freethinkel/tauri-nspopover-plugin.git", version = "4.0.0" }
 tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"
 serde = { version = "1", features = ["derive"] }
@@ -36,3 +34,11 @@ rusqlite = { version = "0.38", features = ["bundled"] }
 specta = { version = "2.0.0-rc.22", features = ["derive", "function", "serde", "tokio"] }
 specta-typescript = "0.0.9"
 tauri-specta = { version = "2.0.0-rc.21", features = ["derive", "typescript"] }
+
+# macOS-only: NSPopover for native popover behavior
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri-plugin-nspopover = { git = "https://github.com/freethinkel/tauri-nspopover-plugin.git", version = "4.0.0" }
+
+# Windows/Linux only: Positioner for tray-relative window positioning
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }

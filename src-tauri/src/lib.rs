@@ -48,16 +48,24 @@ pub fn run() {
         )
         .expect("Failed to export typescript bindings");
 
-    tauri::Builder::default()
+    // Initialize platform-agnostic plugins
+    let app_builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_positioner::init())
-        .plugin(tauri_plugin_nspopover::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
-        ))
+        ));
+
+    // Add platform-specific plugins
+    #[cfg(target_os = "macos")]
+    let app_builder = app_builder.plugin(tauri_plugin_nspopover::init());
+
+    #[cfg(not(target_os = "macos"))]
+    let app_builder = app_builder.plugin(tauri_plugin_positioner::init());
+
+    app_builder
         .invoke_handler(builder.invoke_handler())
         .setup(|app| {
             use tauri::Manager;

@@ -374,7 +374,12 @@ Critical issues to fix before the first public release.
   - 1h/6h/24h: Full resolution (no downsampling needed)
   - Uses AVG() for utilization, MAX() for reset times
   - 13 tests covering bucket calculation and strategy
-- [ ] Conditional plugin loading for platform-specific features
+- [x] Conditional plugin loading for platform-specific features:
+  - `tauri-plugin-nspopover`: macOS only (native popover behavior)
+  - `tauri-plugin-positioner`: Windows/Linux only (tray-relative positioning)
+  - Uses `[target.'cfg(...)'.dependencies]` in Cargo.toml
+  - Conditional plugin initialization via `#[cfg(target_os = "...")]`
+  - Reduces binary size by not including unused platform code
 
 #### Distribution
 - [x] App icon design (all sizes)
