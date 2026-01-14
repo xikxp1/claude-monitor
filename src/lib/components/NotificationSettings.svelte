@@ -110,10 +110,11 @@
   ];
 </script>
 
-<div class="notification-settings">
-  <label class="global-toggle">
+<div class="flex flex-col gap-2">
+  <label class="flex items-center gap-2 cursor-pointer font-medium pb-2 border-b border-base-300">
     <input
       type="checkbox"
+      class="checkbox checkbox-primary checkbox-sm"
       checked={settings.enabled}
       onchange={toggleEnabled}
     />
@@ -121,25 +122,26 @@
   </label>
 
   {#if settings.enabled}
-    <div class="rules-container">
+    <div class="flex flex-col gap-1">
       {#each usageTypes as usageType}
         {@const rule = settings[usageType]}
         {@const isOpen = openSection === usageType}
-        <div class="rule-section" class:open={isOpen}>
+        <div class="bg-base-200 rounded-md overflow-hidden">
           <button
             type="button"
-            class="rule-header"
+            class="flex items-center gap-1.5 w-full px-2.5 py-2 bg-transparent border-none cursor-pointer text-left text-[0.85rem] hover:bg-base-300/50"
             onclick={() => toggleSection(usageType)}
           >
-            <span class="arrow">{isOpen ? "▼" : "▶"}</span>
-            <span class="title">{USAGE_TYPE_LABELS[usageType]}</span>
-            <span class="summary">{getRuleSummary(rule)}</span>
+            <span class="text-[0.65rem] w-2.5 text-base-content/50">{isOpen ? "▼" : "▶"}</span>
+            <span class="font-medium">{USAGE_TYPE_LABELS[usageType]}</span>
+            <span class="ml-auto text-xs text-base-content/50">{getRuleSummary(rule)}</span>
           </button>
           {#if isOpen}
-            <div class="rule-content">
-              <label class="inline-option">
+            <div class="px-2.5 pb-2.5 pl-6 flex flex-col gap-1.5">
+              <label class="flex items-center gap-1.5 text-[0.8rem] cursor-pointer">
                 <input
                   type="checkbox"
+                  class="checkbox checkbox-primary checkbox-xs"
                   checked={rule.interval_enabled}
                   onchange={() =>
                     updateRule(usageType, {
@@ -148,6 +150,7 @@
                 />
                 <span>Every</span>
                 <select
+                  class="select select-bordered select-xs"
                   value={rule.interval_percent}
                   disabled={!rule.interval_enabled}
                   onchange={(e) =>
@@ -166,10 +169,11 @@
                 </select>
               </label>
 
-              <div class="threshold-option">
-                <label class="inline-option">
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center gap-1.5 text-[0.8rem] cursor-pointer">
                   <input
                     type="checkbox"
+                    class="checkbox checkbox-primary checkbox-xs"
                     checked={rule.threshold_enabled}
                     onchange={() =>
                       updateRule(usageType, {
@@ -178,12 +182,11 @@
                   />
                   <span>At thresholds:</span>
                 </label>
-                <div class="threshold-chips" class:disabled={!rule.threshold_enabled}>
+                <div class="flex flex-wrap gap-1 ml-5 {!rule.threshold_enabled ? 'opacity-50' : ''}">
                   {#each THRESHOLD_OPTIONS as threshold}
                     <button
                       type="button"
-                      class="threshold-chip"
-                      class:selected={rule.thresholds.includes(threshold)}
+                      class="btn btn-xs {rule.thresholds.includes(threshold) ? 'btn-primary' : 'btn-ghost'}"
                       disabled={!rule.threshold_enabled}
                       onclick={() => toggleThreshold(usageType, threshold)}
                     >
@@ -193,10 +196,11 @@
                 </div>
               </div>
 
-              <div class="time-remaining-option">
-                <label class="inline-option">
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center gap-1.5 text-[0.8rem] cursor-pointer">
                   <input
                     type="checkbox"
+                    class="checkbox checkbox-primary checkbox-xs"
                     checked={rule.time_remaining_enabled}
                     onchange={() =>
                       updateRule(usageType, {
@@ -205,12 +209,11 @@
                   />
                   <span>Before reset:</span>
                 </label>
-                <div class="time-chips" class:disabled={!rule.time_remaining_enabled}>
+                <div class="flex flex-wrap gap-1 ml-5 {!rule.time_remaining_enabled ? 'opacity-50' : ''}">
                   {#each getTimeOptionsForUsageType(usageType) as option}
                     <button
                       type="button"
-                      class="time-chip"
-                      class:selected={rule.time_remaining_minutes.includes(option.value)}
+                      class="btn btn-xs {rule.time_remaining_minutes.includes(option.value) ? 'btn-primary' : 'btn-ghost'}"
                       disabled={!rule.time_remaining_enabled}
                       onclick={() => toggleTimeOption(usageType, option.value)}
                     >
@@ -226,206 +229,3 @@
     </div>
   {/if}
 </div>
-
-<style>
-  .notification-settings {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .global-toggle {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    font-weight: 500;
-    padding-bottom: 8px;
-    border-bottom: 1px solid #e0e0e0;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .global-toggle {
-      border-bottom-color: #333;
-    }
-  }
-
-  .global-toggle input[type="checkbox"] {
-    width: 14px;
-    height: 14px;
-    accent-color: #7c3aed;
-  }
-
-  .rules-container {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .rule-section {
-    background: #f5f5f5;
-    border-radius: 6px;
-    overflow: hidden;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .rule-section {
-      background: #2a2a2a;
-    }
-  }
-
-  .rule-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 8px 10px;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    text-align: left;
-    font-size: 0.85rem;
-    color: inherit;
-  }
-
-  .rule-header:hover {
-    background: rgba(0, 0, 0, 0.05);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .rule-header:hover {
-      background: rgba(255, 255, 255, 0.05);
-    }
-  }
-
-  .arrow {
-    font-size: 0.65rem;
-    width: 10px;
-    color: #888;
-  }
-
-  .title {
-    font-weight: 500;
-  }
-
-  .summary {
-    margin-left: auto;
-    font-size: 0.75rem;
-    color: #888;
-  }
-
-  .rule-content {
-    padding: 4px 10px 10px 26px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .inline-option {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.8rem;
-    cursor: pointer;
-  }
-
-  .inline-option input[type="checkbox"] {
-    width: 14px;
-    height: 14px;
-    accent-color: #7c3aed;
-  }
-
-  .inline-option select {
-    padding: 4px 6px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    background: #fff;
-  }
-
-  .inline-option select:disabled {
-    opacity: 0.5;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .inline-option select {
-      background: #1a1a1a;
-      border-color: #444;
-      color: #f0f0f0;
-    }
-  }
-
-  .threshold-option,
-  .time-remaining-option {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .threshold-chips,
-  .time-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    margin-left: 20px;
-  }
-
-  .threshold-chips.disabled,
-  .time-chips.disabled {
-    opacity: 0.5;
-  }
-
-  .threshold-chip,
-  .time-chip {
-    padding: 3px 8px;
-    border: 1px solid #ddd;
-    border-radius: 12px;
-    background: #fff;
-    font-size: 0.75rem;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    color: #666;
-  }
-
-  .threshold-chip:hover:not(:disabled),
-  .time-chip:hover:not(:disabled) {
-    background: #7c3aed;
-    border-color: #7c3aed;
-    color: #fff;
-  }
-
-  .threshold-chip.selected,
-  .time-chip.selected {
-    background: #7c3aed;
-    border-color: #7c3aed;
-    color: #fff;
-  }
-
-  .threshold-chip:disabled,
-  .time-chip:disabled {
-    cursor: not-allowed;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .threshold-chip,
-    .time-chip {
-      background: #1a1a1a;
-      border-color: #444;
-      color: #aaa;
-    }
-
-    .threshold-chip:hover:not(:disabled),
-    .time-chip:hover:not(:disabled) {
-      background: #9f7aea;
-      border-color: #9f7aea;
-      color: #fff;
-    }
-
-    .threshold-chip.selected,
-    .time-chip.selected {
-      background: #7c3aed;
-      border-color: #7c3aed;
-      color: #fff;
-    }
-  }
-</style>

@@ -8,6 +8,9 @@ Claude Monitor is a Tauri 2 desktop application that monitors Claude API usage. 
 
 Always use `bun` commands instead of `npm` commands.
 
+Always use `bun add <package>` to add a new frontend dependency. Don't edit `package.json` manually.
+Always use `cargo add <package>` in `src-tauri/` folder to add a new backend dependency. Don't edit `Cargo.toml` manually.
+
 Always use `bun run check` to check the code after making changes.
 
 Always consult PLAN.md to see the current state of the project and the planned features. Update PLAN.md as you make changes.

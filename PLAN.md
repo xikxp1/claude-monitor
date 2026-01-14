@@ -103,6 +103,7 @@ Complete implementation plan for Claude Monitor.
 - [x] Consistent component styles
 - [x] Loading states
 - [x] Popup-style container with rounded corners and shadow
+- [x] Refactored to daisyUI (Tailwind CSS v4) - minimized custom CSS
 
 ### Phase 4: Notifications (Backend-Driven)
 
@@ -409,7 +410,12 @@ chrono = { version = "0.4", features = ["serde"] }
     "d3-scale": "^4"
   },
   "devDependencies": {
-    "@types/d3-scale": "^4"
+    "@tailwindcss/vite": "^4",
+    "@types/d3-scale": "^4",
+    "autoprefixer": "^10",
+    "daisyui": "^5",
+    "postcss": "^8",
+    "tailwindcss": "^4"
   }
 }
 ```
@@ -437,7 +443,9 @@ claude-monitor/
 │   │   ├── historyStorage.ts                 # Frontend API for history (calls Rust)
 │   │   └── types.ts                          # TypeScript types
 │   ├── routes/
-│   │   └── +page.svelte                      # Main dashboard (UI only, ~400 lines)
+│   │   ├── +layout.svelte                    # Root layout (imports app.css)
+│   │   └── +page.svelte                      # Main dashboard (daisyUI components)
+│   ├── app.css                               # Tailwind + daisyUI with custom themes
 │   └── app.html
 ├── src-tauri/
 │   ├── src/
