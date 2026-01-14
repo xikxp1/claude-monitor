@@ -255,13 +255,6 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
   - Opus: Orange (#f59e0b)
 - [x] Responsive design for popup window size
 - [x] Threshold lines on charts (50%, 80%, 90%)
-- [ ] Hover tooltips with exact values
-
-#### 8.6 Advanced Features (Future)
-- [ ] Usage predictions based on historical patterns
-- [ ] Alerts when approaching limits based on velocity
-- [ ] Compare current period to previous periods
-- [ ] Heatmap of usage by hour/day of week
 
 ---
 
@@ -309,8 +302,7 @@ Critical issues to fix before the first public release.
 #### Error Handling
 - [x] Add try-catch to all Tauri command invokes (`get_is_configured`, `set_auto_refresh`, `save_credentials`, `clear_credentials`, `refresh_now`)
 - [x] Add try-catch to all store operations (`saveNotificationSettings`, `saveGeneralSettings`, `saveDataRetention`, `clearSettings`)
-- [ ] Network offline indicator
-- [ ] Session expired prompt with re-login option
+- [x] Session expired prompt with re-login option
 - [ ] Add exponential backoff on 429 rate limit errors
 
 #### State Management Fixes
@@ -320,12 +312,9 @@ Critical issues to fix before the first public release.
 
 #### UX Improvements
 - [ ] Show loading state during initial credential setup
-- [ ] Validate utilization percentages (0-100 range) before display
 
 #### Tray Menu Updates
-- [ ] Add separator between menu items
 - [x] Show usage percentage in tray tooltip
-- [ ] Add "Open Settings" menu item
 
 ### Short Term (Medium Priority - Code Quality)
 
@@ -365,11 +354,6 @@ Critical issues to fix before the first public release.
 #### Settings Page Enhancements
 - [x] Refresh interval slider/dropdown (moved to Phase 5.2)
 - [x] Secure token storage (moved to Phase 7)
-- [ ] Clear credentials button with confirmation
-
-#### Chart Enhancements
-- [ ] Hover tooltips with exact values
-- [ ] Export data option (CSV)
 
 ---
 
@@ -390,16 +374,8 @@ Critical issues to fix before the first public release.
 - [ ] Add pagination/downsampling for analytics with large datasets
 - [ ] Conditional plugin loading for platform-specific features
 
-#### Database Improvements
-- [ ] Add database migration support for schema changes
-- [ ] Add database backup/restore functionality
-- [ ] Optimize SQLite with WAL mode for better concurrent access
-
 #### Distribution
 - [x] App icon design (all sizes)
-- [ ] macOS notarization
-- [ ] Windows code signing
-- [ ] Linux packages (AppImage, deb)
 - [ ] GitHub releases
 
 ---

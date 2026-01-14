@@ -48,7 +48,12 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
 
   // Loading/error state
   let loading = $state(false);
-  let error: string | null = $state(null);
+  let error = $state<string | null>(null);
+
+  // Helper to check if error is a session expiration
+  function checkSessionExpired(): boolean {
+    return error !== null && error.toLowerCase().includes("session expired");
+  }
 
   /**
    * Initialize settings from store and backend
@@ -256,6 +261,15 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     showSettings = !showSettings;
   }
 
+  /**
+   * Open settings directly to the credentials tab (for re-login)
+   */
+  function openCredentials() {
+    settingsTab = "credentials";
+    showSettings = true;
+    error = null;
+  }
+
   return {
     // Store reference (for other composables)
     store,
@@ -323,6 +337,9 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     set error(value: string | null) {
       error = value;
     },
+    get isSessionExpired() {
+      return checkSessionExpired();
+    },
 
     // Actions
     init,
@@ -335,5 +352,6 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     open,
     close,
     toggle,
+    openCredentials,
   };
 }

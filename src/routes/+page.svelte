@@ -404,6 +404,19 @@
 
         {#if settings.loading && !usageData.usageData}
           <div class="text-center text-sm text-base-content/60 py-10">Loading usage data...</div>
+        {:else if settings.isSessionExpired}
+          <div class="card bg-base-200 shadow-sm">
+            <div class="card-body p-4 items-center text-center">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-warning mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <h3 class="font-semibold text-base">Session Expired</h3>
+              <p class="text-sm text-base-content/70 mb-2">Your Claude session has expired. Please update your session token to continue.</p>
+              <button class="btn btn-primary btn-sm" onclick={() => settings.openCredentials()}>
+                Update Token
+              </button>
+            </div>
+          </div>
         {:else if settings.error}
           <div class="alert alert-error text-sm py-2">
             <span>{settings.error}</span>
