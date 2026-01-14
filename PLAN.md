@@ -294,7 +294,7 @@ Critical issues to fix before the first public release.
   - `src-tauri/src/validation.rs` - Security-critical validation (20 tests)
   - `src-tauri/src/notifications.rs` - Notification logic (26 tests)
   - `src-tauri/src/history.rs` - Statistics calculation (12 tests)
-- [ ] Fix loading state not resetting on successful credential save (`useSettings.svelte.ts:136`)
+- [x] Fix loading state not resetting on successful credential save (`useSettings.svelte.ts:131`)
 
 #### UX Polish
 - [ ] Add confirmation toast/feedback when settings are saved successfully

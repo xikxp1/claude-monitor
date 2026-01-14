@@ -128,6 +128,7 @@ export function useSettings() {
       isConfigured = await invoke<boolean>("get_is_configured");
 
       showSettings = false;
+      loading = false;
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to save settings";
       loading = false;
