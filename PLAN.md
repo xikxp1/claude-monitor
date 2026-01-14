@@ -334,6 +334,7 @@ Critical issues to fix before the first public release.
 
 #### Type Safety
 - [x] Codegen for shared Rust/TypeScript types (specta)
+- [x] Type-safe command invocations via tauri-specta (generated `commands` object)
 
 #### Settings Page Enhancements
 - [x] Refresh interval slider/dropdown (moved to Phase 5.2)

@@ -2,13 +2,13 @@
  * Settings composable - manages credentials, general settings, autostart, and notifications
  */
 
-import { invoke } from "@tauri-apps/api/core";
 import {
   disable as disableAutostart,
   enable as enableAutostart,
   isEnabled as isAutostartEnabled,
 } from "@tauri-apps/plugin-autostart";
 import { LazyStore } from "@tauri-apps/plugin-store";
+import { commands } from "$lib/bindings.generated";
 import { cleanupOldData } from "$lib/historyStorage";
 import type { NotificationSettings } from "$lib/types";
 import { getDefaultNotificationSettings } from "$lib/types";
@@ -62,7 +62,8 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
   async function init() {
     // Check if configured from backend
     try {
-      isConfigured = await invoke<boolean>("get_is_configured");
+      const result = await commands.getIsConfigured();
+      isConfigured = result.status === "ok" ? result.data : false;
     } catch (e) {
       console.error("Failed to check configuration status:", e);
       isConfigured = false;
@@ -85,7 +86,7 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
 
     // Sync notification settings to backend
     try {
-      await invoke("set_notification_settings", { settings: notificationSettings });
+      await commands.setNotificationSettings(notificationSettings);
     } catch (e) {
       console.error("Failed to sync notification settings to backend:", e);
     }
@@ -110,10 +111,7 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
 
     // Send auto-refresh settings to backend
     try {
-      await invoke("set_auto_refresh", {
-        enabled: autoRefreshEnabled,
-        intervalMinutes: refreshIntervalMinutes,
-      });
+      await commands.setAutoRefresh(autoRefreshEnabled, refreshIntervalMinutes);
     } catch (e) {
       console.error("Failed to set auto-refresh settings:", e);
     }
@@ -127,33 +125,32 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     loading = true;
     error = null;
 
-    try {
-      await invoke("save_credentials", {
-        orgId: orgIdInput,
-        sessionToken: tokenInput,
-      });
+    const result = await commands.saveCredentials(orgIdInput, tokenInput);
 
-      // Clear form inputs
-      orgIdInput = "";
-      tokenInput = "";
-
-      // Update configured state
-      isConfigured = await invoke<boolean>("get_is_configured");
-
-      showSettings = false;
-
-      // For initial setup, keep loading=true while waiting for first data fetch
-      // The backend event handler will set loading=false when data arrives
-      if (wasConfigured) {
-        loading = false;
-      }
-
-      onSuccess?.("Credentials saved");
-    } catch (e) {
-      error = e instanceof Error ? e.message : "Failed to save settings";
+    if (result.status === "error") {
+      error = result.error;
       loading = false;
       onError?.(error);
+      return;
     }
+
+    // Clear form inputs
+    orgIdInput = "";
+    tokenInput = "";
+
+    // Update configured state
+    const configResult = await commands.getIsConfigured();
+    isConfigured = configResult.status === "ok" ? configResult.data : false;
+
+    showSettings = false;
+
+    // For initial setup, keep loading=true while waiting for first data fetch
+    // The backend event handler will set loading=false when data arrives
+    if (wasConfigured) {
+      loading = false;
+    }
+
+    onSuccess?.("Credentials saved");
   }
 
   /**
@@ -162,7 +159,7 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
   async function persistNotifications(newSettings: NotificationSettings) {
     try {
       await store.set("notification_settings", newSettings);
-      await invoke("set_notification_settings", { settings: newSettings });
+      await commands.setNotificationSettings(newSettings);
       onSuccess?.("Notification settings saved");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to save notification settings";
@@ -187,7 +184,7 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     try {
       await store.set("auto_refresh_enabled", enabled);
       await store.set("refresh_interval_minutes", intervalMinutes);
-      await invoke("set_auto_refresh", { enabled, intervalMinutes });
+      await commands.setAutoRefresh(enabled, intervalMinutes);
       onSuccess?.("Settings saved");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to save settings";
@@ -255,26 +252,26 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
    * Clear all settings
    */
   async function clearAll() {
-    try {
-      await invoke("clear_credentials");
-      await store.clear();
-
-      // Reset state variables
-      refreshIntervalMinutes = 5;
-      autoRefreshEnabled = true;
-      isConfigured = false;
-      orgIdInput = "";
-      tokenInput = "";
-      notificationSettings = getDefaultNotificationSettings();
-      showSettings = false;
-
-      // Sync reset notification settings to backend
-      await invoke("set_notification_settings", { settings: notificationSettings });
-      onSuccess?.("Settings cleared");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to clear settings";
-      onError?.(msg);
+    const result = await commands.clearCredentials();
+    if (result.status === "error") {
+      onError?.(result.error);
+      return;
     }
+
+    await store.clear();
+
+    // Reset state variables
+    refreshIntervalMinutes = 5;
+    autoRefreshEnabled = true;
+    isConfigured = false;
+    orgIdInput = "";
+    tokenInput = "";
+    notificationSettings = getDefaultNotificationSettings();
+    showSettings = false;
+
+    // Sync reset notification settings to backend
+    await commands.setNotificationSettings(notificationSettings);
+    onSuccess?.("Settings cleared");
   }
 
   function open() {

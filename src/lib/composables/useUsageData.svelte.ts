@@ -2,8 +2,8 @@
  * Usage data composable - manages usage data fetching, events, and countdown timer
  */
 
-import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { commands } from "$lib/bindings.generated";
 import type { UsageData } from "$lib/types";
 
 export interface UsageDataCallbacks {
@@ -127,7 +127,7 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
     callbacks.setError(null);
 
     try {
-      await invoke("refresh_now");
+      await commands.refreshNow();
     } catch (e) {
       console.error("Failed to trigger refresh:", e);
       callbacks.setError(e instanceof Error ? e.message : "Failed to refresh");
