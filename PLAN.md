@@ -346,7 +346,7 @@ Critical issues to fix before the first public release.
 
 #### Testing Infrastructure
 - [x] Add Vitest unit tests for frontend utilities (formatting.ts, types.ts) - 30 tests
-- [ ] Add Vitest unit tests for composables
+- [x] Add Vitest unit tests for composables (useAnalytics, useUsageData, useSettings) - 85 tests
 - [x] Add Cargo tests for Rust modules (validation, history, notifications) - 60 tests
 - [ ] Add integration tests for Tauri commands
 - [ ] Add Playwright e2e tests for critical flows
