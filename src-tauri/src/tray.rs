@@ -5,6 +5,8 @@ use tauri::{
     Emitter, Runtime,
 };
 #[cfg(not(target_os = "macos"))]
+use tauri::Manager;
+#[cfg(not(target_os = "macos"))]
 use tauri_plugin_positioner::{on_tray_event, Position, WindowExt};
 
 pub fn update_tray_tooltip<R: Runtime>(app: &tauri::AppHandle<R>, usage: Option<&UsageData>) {
