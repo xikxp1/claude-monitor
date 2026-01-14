@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use tokio::sync::{watch, Mutex};
 
 // ============================================================================
 // API Types
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct UsageData {
     pub five_hour: Option<UsagePeriod>,
     pub seven_day: Option<UsagePeriod>,
@@ -13,13 +14,13 @@ pub struct UsageData {
     pub seven_day_opus: Option<UsagePeriod>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct UsagePeriod {
     pub utilization: f64,
     pub resets_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct Settings {
     pub organization_id: Option<String>,
     pub session_token: Option<String>,
@@ -41,7 +42,7 @@ impl Default for Settings {
 // ============================================================================
 
 /// Notification rule for a single usage type
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct NotificationRule {
     pub interval_enabled: bool,
     pub interval_percent: u32,
@@ -67,7 +68,7 @@ impl Default for NotificationRule {
 }
 
 /// Notification settings for all usage types
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct NotificationSettings {
     pub enabled: bool,
     pub five_hour: NotificationRule,
@@ -89,7 +90,7 @@ impl Default for NotificationSettings {
 }
 
 /// Tracks which notifications have been sent to avoid duplicates
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Type)]
 pub struct NotificationState {
     pub five_hour_last: f64,
     pub seven_day_last: f64,
@@ -124,7 +125,7 @@ impl Default for AutoRefreshConfig {
 }
 
 /// Event payload sent to frontend when usage is updated
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageUpdateEvent {
     pub usage: UsageData,
@@ -132,7 +133,7 @@ pub struct UsageUpdateEvent {
 }
 
 /// Event payload sent to frontend when an error occurs
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Type)]
 pub struct UsageErrorEvent {
     pub error: String,
 }

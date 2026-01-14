@@ -333,7 +333,7 @@ Critical issues to fix before the first public release.
   - `commands.rs` - Tauri commands
 
 #### Type Safety
-- [ ] Consider codegen for shared Rust/TypeScript types
+- [x] Codegen for shared Rust/TypeScript types (specta)
 
 #### Settings Page Enhancements
 - [x] Refresh interval slider/dropdown (moved to Phase 5.2)

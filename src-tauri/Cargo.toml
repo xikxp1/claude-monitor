@@ -33,3 +33,6 @@ thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }
 rusqlite = { version = "0.38", features = ["bundled"] }
+specta = { version = "2.0.0-rc.22", features = ["derive", "function", "serde", "tokio"] }
+specta-typescript = "0.0.9"
+tauri-specta = { version = "2.0.0-rc.21", features = ["derive", "typescript"] }

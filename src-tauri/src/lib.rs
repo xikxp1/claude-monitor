@@ -18,12 +18,36 @@ use commands::{
 use tray::create_tray;
 use types::{AppState, AutoRefreshConfig, NotificationSettings, NotificationState};
 
+use specta_typescript::{BigIntExportBehavior, Typescript};
 use std::sync::Arc;
 use tauri_plugin_store::StoreExt;
+use tauri_specta::{collect_commands, Builder};
 use tokio::sync::{watch, Mutex};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let builder = Builder::<tauri::Wry>::new().commands(collect_commands![
+        get_usage,
+        get_default_settings,
+        save_credentials,
+        get_is_configured,
+        clear_credentials,
+        set_auto_refresh,
+        refresh_now,
+        set_notification_settings,
+        get_usage_history_by_range,
+        get_usage_stats,
+        cleanup_history
+    ]);
+
+    #[cfg(debug_assertions)]
+    builder
+        .export(
+            Typescript::default().bigint(BigIntExportBehavior::Number),
+            "../src/lib/bindings.generated.ts",
+        )
+        .expect("Failed to export typescript bindings");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -34,19 +58,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
-        .invoke_handler(tauri::generate_handler![
-            get_usage,
-            get_default_settings,
-            save_credentials,
-            get_is_configured,
-            clear_credentials,
-            set_auto_refresh,
-            refresh_now,
-            set_notification_settings,
-            get_usage_history_by_range,
-            get_usage_stats,
-            cleanup_history
-        ])
+        .invoke_handler(builder.invoke_handler())
         .setup(|app| {
             use tauri::Manager;
 

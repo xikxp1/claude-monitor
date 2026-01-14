@@ -8,17 +8,20 @@ use crate::validation::{validate_org_id, validate_session_token};
 use std::sync::Arc;
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_usage(org_id: String, session_token: String) -> Result<UsageData, AppError> {
     fetch_usage_from_api(&org_id, &session_token).await
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn get_default_settings() -> Settings {
     Settings::default()
 }
 
 /// Save credentials to OS keychain and update in-memory state
 #[tauri::command]
+#[specta::specta]
 pub async fn save_credentials(
     state: tauri::State<'_, Arc<AppState>>,
     org_id: String,
@@ -44,6 +47,7 @@ pub async fn save_credentials(
 
 /// Check if credentials are configured (without exposing them)
 #[tauri::command]
+#[specta::specta]
 pub async fn get_is_configured(state: tauri::State<'_, Arc<AppState>>) -> Result<bool, ()> {
     let config = state.config.lock().await;
     let is_configured = config.organization_id.is_some() && config.session_token.is_some();
@@ -52,6 +56,7 @@ pub async fn get_is_configured(state: tauri::State<'_, Arc<AppState>>) -> Result
 
 /// Clear credentials from OS keychain and stop auto-refresh
 #[tauri::command]
+#[specta::specta]
 pub async fn clear_credentials(state: tauri::State<'_, Arc<AppState>>) -> Result<(), AppError> {
     // Delete from OS keychain
     credentials::delete_credentials()?;
@@ -69,6 +74,7 @@ pub async fn clear_credentials(state: tauri::State<'_, Arc<AppState>>) -> Result
 
 /// Update auto-refresh settings and restart loop
 #[tauri::command]
+#[specta::specta]
 pub async fn set_auto_refresh(
     state: tauri::State<'_, Arc<AppState>>,
     enabled: bool,
@@ -86,6 +92,7 @@ pub async fn set_auto_refresh(
 
 /// Trigger immediate refresh
 #[tauri::command]
+#[specta::specta]
 pub async fn refresh_now(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
@@ -103,6 +110,7 @@ pub async fn refresh_now(
 
 /// Update notification settings in memory (frontend saves to store)
 #[tauri::command]
+#[specta::specta]
 pub async fn set_notification_settings(
     state: tauri::State<'_, Arc<AppState>>,
     settings: NotificationSettings,
@@ -114,18 +122,21 @@ pub async fn set_notification_settings(
 
 /// Get usage history by time range preset
 #[tauri::command]
+#[specta::specta]
 pub fn get_usage_history_by_range(range: String) -> Result<Vec<UsageHistoryRecord>, String> {
     history::get_usage_history_by_range(&range).map_err(|e| e.to_string())
 }
 
 /// Get usage statistics for a time range
 #[tauri::command]
+#[specta::specta]
 pub fn get_usage_stats(range: String) -> Result<UsageStats, String> {
     history::get_usage_stats(&range).map_err(|e| e.to_string())
 }
 
 /// Clean up old history data
 #[tauri::command]
+#[specta::specta]
 pub fn cleanup_history(retention_days: u32) -> Result<usize, String> {
     history::cleanup_old_data(retention_days).map_err(|e| e.to_string())
 }

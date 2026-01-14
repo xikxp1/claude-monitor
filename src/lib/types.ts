@@ -1,53 +1,40 @@
-export interface UsagePeriod {
-  utilization: number;
-  resets_at: string | null;
+// Re-export generated types from Rust via tauri-specta
+// Types are auto-generated when running the app in debug mode
+export type {
+  MetricStats,
+  NotificationRule,
+  NotificationSettings,
+  Settings,
+  UsageData,
+  UsageHistoryRecord,
+  UsagePeriod,
+  UsageStats,
+} from "./bindings.generated";
+
+// Import for use in this file
+import type { NotificationRule, NotificationSettings, UsageData } from "./bindings.generated";
+
+// Event payload types (not generated since they're only used in event listeners)
+export interface UsageUpdateEvent {
+  usage: UsageData;
+  nextRefreshAt: number | null;
 }
 
-export interface UsageData {
-  five_hour: UsagePeriod | null;
-  seven_day: UsagePeriod | null;
-  seven_day_sonnet: UsagePeriod | null;
-  seven_day_opus: UsagePeriod | null;
+export interface UsageErrorEvent {
+  error: string;
 }
 
-export interface Settings {
-  organization_id: string | null;
-  session_token: string | null;
-  refresh_interval_minutes: number;
-  auto_refresh_enabled: boolean;
-}
-
-// Notification types
-
-export interface NotificationRule {
-  interval_enabled: boolean;
-  interval_percent: number;
-  thresholds: number[];
-  threshold_enabled: boolean;
-  /** Enable time-remaining notifications (notify when close to reset) */
-  time_remaining_enabled: boolean;
-  /** Time thresholds in minutes (e.g., [30, 60] = notify at 30min and 1hr before reset) */
-  time_remaining_minutes: number[];
-}
-
-export interface NotificationSettings {
-  enabled: boolean;
-  five_hour: NotificationRule;
-  seven_day: NotificationRule;
-  seven_day_sonnet: NotificationRule;
-  seven_day_opus: NotificationRule;
-}
-
+// Notification state (frontend-only, not a command parameter)
 export interface NotificationState {
   five_hour_last: number;
   seven_day_last: number;
   seven_day_sonnet_last: number;
   seven_day_opus_last: number;
   fired_thresholds: string[];
-  /** Tracks fired time-remaining notifications (format: "usage_type:minutes") */
   fired_time_remaining: string[];
 }
 
+// Frontend-only types (not shared with Rust)
 export type UsageType = "five_hour" | "seven_day" | "seven_day_sonnet" | "seven_day_opus";
 
 export const USAGE_TYPE_LABELS: Record<UsageType, string> = {

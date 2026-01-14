@@ -1,4 +1,5 @@
 use serde::Serialize;
+use specta::Type;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -23,5 +24,16 @@ impl Serialize for AppError {
         S: serde::Serializer,
     {
         serializer.serialize_str(&self.to_string())
+    }
+}
+
+// Implement Type manually since reqwest::Error doesn't implement Type.
+// The error is serialized as a string, so we export it as string type.
+impl Type for AppError {
+    fn inline(
+        _type_map: &mut specta::TypeCollection,
+        _generics: specta::Generics,
+    ) -> specta::datatype::DataType {
+        specta::datatype::DataType::Primitive(specta::datatype::PrimitiveType::String)
     }
 }

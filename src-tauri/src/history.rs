@@ -1,6 +1,7 @@
 use crate::types::UsageData;
 use rusqlite::{Connection, Result as SqliteResult};
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::Manager;
@@ -26,7 +27,7 @@ const SCHEMA: &str = r#"
 "#;
 
 /// Usage history record matching frontend TypeScript interface
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct UsageHistoryRecord {
     pub id: i64,
     pub timestamp: String,
@@ -41,7 +42,7 @@ pub struct UsageHistoryRecord {
 }
 
 /// Metric statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct MetricStats {
     pub current: Option<f64>,
     pub change: Option<f64>,
@@ -49,7 +50,7 @@ pub struct MetricStats {
 }
 
 /// Usage statistics for a time range
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageStats {
     pub five_hour: MetricStats,
