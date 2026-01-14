@@ -44,8 +44,13 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
 
     let menu = Menu::with_items(app, &[&show_i, &refresh_i, &quit_i])?;
 
+    let icon = app
+        .default_window_icon()
+        .ok_or_else(|| tauri::Error::AssetNotFound("default window icon".into()))?
+        .clone();
+
     let _tray = TrayIconBuilder::with_id("main")
-        .icon(app.default_window_icon().unwrap().clone())
+        .icon(icon)
         .tooltip("Claude Monitor")
         .menu(&menu)
         .show_menu_on_left_click(false)

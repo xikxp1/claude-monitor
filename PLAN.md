@@ -265,22 +265,47 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
 
 ---
 
-## Next Steps (Prioritized)
+## Pre-Release Fixes (v0.1.0)
 
-### Immediate (Critical - Security)
+Critical issues to fix before the first public release.
 
-#### Secure Storage Improvements
-- [x] Remove hardcoded Stronghold password - derive from machine-specific data (SHA-256 hash of app data path)
-- [x] Add session token format validation before HTTP header injection
-- [x] Add organization ID format validation
-- [x] Keep credentials server-side only (don't expose in frontend state)
+### Must Fix (Blocking Release)
 
-### Immediate (High Priority - Stability)
+#### Code Quality
+- [x] **Fix tray icon unwrap panic** - `src-tauri/src/tray.rs:48` uses `.unwrap()` on `default_window_icon()` which could panic if icon is missing. Replace with proper error handling.
+- [ ] **Remove debug logging** - Production builds should not include debug output:
+  - `src-tauri/src/validation.rs:16,36` - `eprintln!` for invalid characters
+  - `src-tauri/src/api.rs:35,36,45` - `eprintln!` for parse/HTTP errors
+  - `src-tauri/src/auto_refresh.rs:24,67` - `eprintln!` for snapshot/refresh errors
+  - `src-tauri/src/lib.rs:91` - `eprintln!` for database init failure
+  - `src/lib/composables/useSettings.svelte.ts:96,204` - `console.log` for cleanup
+- [ ] **Set Content Security Policy** - `tauri.conf.json:26` has `"csp": null`. Add proper CSP for security.
+
+#### Documentation
+- [ ] **Fix README test command** - README mentions `bun run test` but no test script exists in package.json. Either add tests or remove the section.
+- [ ] **Update README project structure** - The structure section is outdated (doesn't show new modules like `composables/`, `charts/`, Rust modules).
+
+### Should Fix (High Priority)
+
+#### Stability
+- [ ] Add basic unit tests for critical paths:
+  - `src/lib/utils/formatting.ts` - Pure functions, easy to test
+  - `src-tauri/src/validation.rs` - Security-critical validation
+- [ ] Fix loading state not resetting on successful credential save (`useSettings.svelte.ts:136`)
+
+#### UX Polish
+- [ ] Add confirmation toast/feedback when settings are saved successfully
+- [ ] Better error messages for common failures (401 = "Session expired", network errors)
+
+---
+
+## Next Steps (Post-Release)
+
+### Medium Priority - Stability
 
 #### Error Handling
 - [x] Add try-catch to all Tauri command invokes (`get_is_configured`, `set_auto_refresh`, `save_credentials`, `clear_credentials`, `refresh_now`)
 - [x] Add try-catch to all store operations (`saveNotificationSettings`, `saveGeneralSettings`, `saveDataRetention`, `clearSettings`)
-- [ ] Better error messages for common failures
 - [ ] Network offline indicator
 - [ ] Session expired prompt with re-login option
 - [ ] Add exponential backoff on 429 rate limit errors
@@ -292,7 +317,6 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
 
 #### UX Improvements
 - [ ] Show loading state during initial credential setup
-- [ ] Add error feedback (toast/snackbar) for failed settings saves
 - [ ] Validate utilization percentages (0-100 range) before display
 
 #### Tray Menu Updates
