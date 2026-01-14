@@ -19,7 +19,9 @@ use tray::create_tray;
 use types::{AppState, AutoRefreshConfig, NotificationSettings, NotificationState};
 
 use specta_typescript::{BigIntExportBehavior, Typescript};
+use std::backtrace::Backtrace;
 use std::sync::Arc;
+use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_store::StoreExt;
 use tauri_specta::{collect_commands, Builder};
 use tokio::sync::{watch, Mutex};
@@ -50,6 +52,15 @@ pub fn run() {
 
     // Initialize platform-agnostic plugins
     let app_builder = tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    Target::new(TargetKind::Stdout),
+                    Target::new(TargetKind::LogDir { file_name: None }),
+                    Target::new(TargetKind::Webview),
+                ])
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_notification::init())
@@ -74,6 +85,14 @@ pub fn run() {
         .invoke_handler(builder.invoke_handler())
         .setup(|app| {
             use tauri::Manager;
+
+            // Set up panic hook to log panics before crashing
+            let default_panic = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                let backtrace = Backtrace::force_capture();
+                log::error!("Panic: {info}\n{backtrace}");
+                default_panic(info);
+            }));
 
             // Try to load credentials from OS keychain
             let initial_credentials = credentials::load_credentials();

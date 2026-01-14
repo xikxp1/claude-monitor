@@ -87,12 +87,6 @@ claude-monitor/
 
 # Technical Notes
 
-## NSPopover Plugin (macOS)
-- Requires tray with ID "main" to exist before calling `to_popover()`
-- Trait names: `AppExt`, `WindowExt` (not `AppHandleExt`, `WebviewWindowExt`)
-- Plugin must be initialized with `.plugin(tauri_plugin_nspopover::init())`
-- Permissions: `nspopover:allow-show-popover`, `nspopover:allow-hide-popover`, `nspopover:allow-is-popover-shown`
-
 ## Rust Backend Module Structure
 The Rust backend (`src-tauri/src/`) is organized into focused modules:
 - `error.rs` - Custom `AppError` enum with thiserror and Serialize
@@ -163,8 +157,8 @@ The Claude usage API returns:
 ```
 
 ## Platform-Specific Behavior
-- **macOS**: Uses NSPopover for proper fullscreen support, auto-hides on focus loss
-- **Windows/Linux**: Uses positioner plugin, manual hide on focus loss, always-on-top window
+- **All platforms**: Uses positioner plugin for tray-relative window positioning, auto-hides on focus loss, always-on-top window
+- **macOS**: Sets activation policy to Accessory for proper tray app behavior (no dock icon)
 
 ## OS Keychain Secure Storage (Rust Backend)
 - Uses `keyring` crate for cross-platform secure credential storage:

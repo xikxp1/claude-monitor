@@ -1,6 +1,6 @@
 [package]
 name = "claude-monitor"
-version = "0.1.0"
+version = "0.1.1"
 description = "Desktop app to monitor Claude API usage"
 authors = ["you"]
 edition = "2021"
@@ -36,6 +36,8 @@ specta-typescript = "0.0.9"
 tauri-specta = { version = "2.0.0-rc.21", features = ["derive", "typescript"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-log = "2.8.0"
+log = "0.4.29"
 
 # macOS-only: NSPopover for native popover behavior
 [target.'cfg(target_os = "macos")'.dependencies]
