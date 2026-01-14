@@ -150,24 +150,21 @@
         <h2 class="text-lg font-semibold mb-2">{settings.isConfigured ? "Settings" : "Setup"}</h2>
 
         {#if settings.isConfigured}
-          <div role="tablist" class="tabs tabs-box mb-4 w-full">
+          <div class="join w-full mb-4">
             <button
-              role="tab"
-              class="tab flex-1 {settings.settingsTab === 'credentials' ? 'tab-active' : ''}"
+              class="join-item btn btn-sm flex-1 {settings.settingsTab === 'credentials' ? 'btn-primary' : 'btn-ghost'}"
               onclick={() => (settings.settingsTab = "credentials")}
             >
               Credentials
             </button>
             <button
-              role="tab"
-              class="tab flex-1 {settings.settingsTab === 'notifications' ? 'tab-active' : ''}"
+              class="join-item btn btn-sm flex-1 {settings.settingsTab === 'notifications' ? 'btn-primary' : 'btn-ghost'}"
               onclick={() => (settings.settingsTab = "notifications")}
             >
               Notifications
             </button>
             <button
-              role="tab"
-              class="tab flex-1 {settings.settingsTab === 'general' ? 'tab-active' : ''}"
+              class="join-item btn btn-sm flex-1 {settings.settingsTab === 'general' ? 'btn-primary' : 'btn-ghost'}"
               onclick={() => (settings.settingsTab = "general")}
             >
               General
