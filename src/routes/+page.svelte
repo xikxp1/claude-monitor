@@ -188,25 +188,25 @@
         {#if settings.isConfigured}
           <div class="join w-full mb-4">
             <button
-              class="join-item btn btn-sm flex-1 {settings.settingsTab === 'credentials' ? 'btn-primary' : 'btn-ghost'}"
+              class="join-item btn btn-xs flex-1 {settings.settingsTab === 'credentials' ? 'btn-primary' : 'btn-ghost'}"
               onclick={() => (settings.settingsTab = "credentials")}
             >
-              Credentials
+              Account
             </button>
             <button
-              class="join-item btn btn-sm flex-1 {settings.settingsTab === 'notifications' ? 'btn-primary' : 'btn-ghost'}"
+              class="join-item btn btn-xs flex-1 {settings.settingsTab === 'notifications' ? 'btn-primary' : 'btn-ghost'}"
               onclick={() => (settings.settingsTab = "notifications")}
             >
-              Notifications
+              Alerts
             </button>
             <button
-              class="join-item btn btn-sm flex-1 {settings.settingsTab === 'general' ? 'btn-primary' : 'btn-ghost'}"
+              class="join-item btn btn-xs flex-1 {settings.settingsTab === 'general' ? 'btn-primary' : 'btn-ghost'}"
               onclick={() => (settings.settingsTab = "general")}
             >
               General
             </button>
             <button
-              class="join-item btn btn-sm flex-1 {settings.settingsTab === 'updates' ? 'btn-primary' : 'btn-ghost'}"
+              class="join-item btn btn-xs flex-1 {settings.settingsTab === 'updates' ? 'btn-primary' : 'btn-ghost'}"
               onclick={() => (settings.settingsTab = "updates")}
             >
               Updates
