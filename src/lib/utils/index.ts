@@ -1,3 +1,4 @@
+export { debounce } from "./debounce";
 export {
   formatCountdown,
   formatLastUpdate,

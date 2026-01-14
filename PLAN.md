@@ -308,7 +308,7 @@ Critical issues to fix before the first public release.
 #### State Management Fixes
 - [x] ~~Fix stale closure in event listeners~~ - No longer applicable (usage events handled by backend)
 - [x] ~~Fix race condition in notification state sync~~ - No longer applicable (notifications fully backend-driven)
-- [ ] Add debouncing to settings form changes
+- [x] Add debouncing to settings form changes
 
 #### UX Improvements
 - [x] Show loading state during initial credential setup
@@ -334,22 +334,9 @@ Critical issues to fix before the first public release.
   - `tray.rs` - System tray creation and tooltip updates
   - `auto_refresh.rs` - Background refresh loop (includes notifications)
   - `commands.rs` - Tauri commands
-- [ ] Centralize color/label constants (currently duplicated in chart, CSS, components)
-- [ ] Remove duplicated notification switch statements - use `Record<UsageType, number>`
-- [ ] Add input validation for settings (e.g., `refresh_interval_minutes` bounds)
 
 #### Type Safety
-- [ ] Add ISO8601 validation for `resets_at` timestamps
-- [ ] Use discriminated unions for notification type safety
 - [ ] Consider codegen for shared Rust/TypeScript types
-
-#### Custom Tray Icons
-- [ ] Design tray icon assets (16x16, 32x32, @2x)
-- [ ] Different icon states:
-  - Normal (gray)
-  - Warning (yellow) - > 80% usage
-  - Critical (red) - > 95% usage
-- [ ] Update tray icon based on usage level
 
 #### Settings Page Enhancements
 - [x] Refresh interval slider/dropdown (moved to Phase 5.2)
@@ -371,7 +358,7 @@ Critical issues to fix before the first public release.
 #### Performance Optimizations
 - [x] Pause countdown timer when window hidden (reduce CPU wakeups)
 - [ ] Combine 3 database queries into 1 in `getUsageStats()`
-- [ ] Add pagination/downsampling for analytics with large datasets
+- [ ] Add downsampling for analytics with large datasets
 - [ ] Conditional plugin loading for platform-specific features
 
 #### Distribution

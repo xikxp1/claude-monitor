@@ -12,6 +12,7 @@ import { LazyStore } from "@tauri-apps/plugin-store";
 import { cleanupOldData } from "$lib/historyStorage";
 import type { NotificationSettings } from "$lib/types";
 import { getDefaultNotificationSettings } from "$lib/types";
+import { debounce } from "$lib/utils";
 
 export interface SettingsCallbacks {
   onSuccess?: (message: string) => void;
@@ -156,13 +157,11 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
   }
 
   /**
-   * Save notification settings
+   * Internal: persist notification settings (debounced)
    */
-  async function saveNotifications(newSettings: NotificationSettings) {
-    notificationSettings = newSettings;
+  async function persistNotifications(newSettings: NotificationSettings) {
     try {
       await store.set("notification_settings", newSettings);
-      // Sync to backend for backend-driven notifications
       await invoke("set_notification_settings", { settings: newSettings });
       onSuccess?.("Notification settings saved");
     } catch (e) {
@@ -171,24 +170,24 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     }
   }
 
+  const debouncedPersistNotifications = debounce(persistNotifications, 1000);
+
   /**
-   * Save general settings (auto-refresh)
+   * Save notification settings (immediate UI update, debounced persistence)
    */
-  async function saveGeneral(
-    newAutoRefreshEnabled: boolean,
-    newRefreshIntervalMinutes: number,
-  ) {
-    autoRefreshEnabled = newAutoRefreshEnabled;
-    refreshIntervalMinutes = newRefreshIntervalMinutes;
+  function saveNotifications(newSettings: NotificationSettings) {
+    notificationSettings = newSettings;
+    debouncedPersistNotifications(newSettings);
+  }
 
+  /**
+   * Internal: persist general settings (debounced)
+   */
+  async function persistGeneral(enabled: boolean, intervalMinutes: number) {
     try {
-      await store.set("auto_refresh_enabled", newAutoRefreshEnabled);
-      await store.set("refresh_interval_minutes", newRefreshIntervalMinutes);
-
-      await invoke("set_auto_refresh", {
-        enabled: newAutoRefreshEnabled,
-        intervalMinutes: newRefreshIntervalMinutes,
-      });
+      await store.set("auto_refresh_enabled", enabled);
+      await store.set("refresh_interval_minutes", intervalMinutes);
+      await invoke("set_auto_refresh", { enabled, intervalMinutes });
       onSuccess?.("Settings saved");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to save settings";
@@ -196,8 +195,22 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     }
   }
 
+  const debouncedPersistGeneral = debounce(persistGeneral, 1000);
+
   /**
-   * Toggle autostart
+   * Save general settings (immediate UI update, debounced persistence)
+   */
+  function saveGeneral(
+    newAutoRefreshEnabled: boolean,
+    newRefreshIntervalMinutes: number,
+  ) {
+    autoRefreshEnabled = newAutoRefreshEnabled;
+    refreshIntervalMinutes = newRefreshIntervalMinutes;
+    debouncedPersistGeneral(newAutoRefreshEnabled, newRefreshIntervalMinutes);
+  }
+
+  /**
+   * Toggle autostart (not debounced - discrete action)
    */
   async function toggleAutostart(enabled: boolean) {
     try {
@@ -215,11 +228,9 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
   }
 
   /**
-   * Save data retention setting
+   * Internal: persist retention setting (debounced)
    */
-  async function saveRetention(days: number) {
-    dataRetentionDays = days;
-
+  async function persistRetention(days: number) {
     try {
       await store.set("data_retention_days", days);
       await cleanupOldData(days);
@@ -228,6 +239,16 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
       const msg = e instanceof Error ? e.message : "Failed to save retention settings";
       onError?.(msg);
     }
+  }
+
+  const debouncedPersistRetention = debounce(persistRetention, 1000);
+
+  /**
+   * Save data retention setting (immediate UI update, debounced persistence)
+   */
+  function saveRetention(days: number) {
+    dataRetentionDays = days;
+    debouncedPersistRetention(days);
   }
 
   /**
