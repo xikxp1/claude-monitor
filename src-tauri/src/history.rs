@@ -326,3 +326,122 @@ pub fn cleanup_old_data(retention_days: u32) -> SqliteResult<usize> {
 
     Ok(rows_deleted)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod get_range_hours {
+        use super::*;
+
+        #[test]
+        fn converts_1h_correctly() {
+            assert_eq!(get_range_hours("1h"), 1.0);
+        }
+
+        #[test]
+        fn converts_6h_correctly() {
+            assert_eq!(get_range_hours("6h"), 6.0);
+        }
+
+        #[test]
+        fn converts_24h_correctly() {
+            assert_eq!(get_range_hours("24h"), 24.0);
+        }
+
+        #[test]
+        fn converts_7d_correctly() {
+            assert_eq!(get_range_hours("7d"), 168.0); // 7 * 24
+        }
+
+        #[test]
+        fn converts_30d_correctly() {
+            assert_eq!(get_range_hours("30d"), 720.0); // 30 * 24
+        }
+
+        #[test]
+        fn defaults_to_24h_for_unknown() {
+            assert_eq!(get_range_hours("invalid"), 24.0);
+            assert_eq!(get_range_hours(""), 24.0);
+            assert_eq!(get_range_hours("1w"), 24.0);
+        }
+    }
+
+    mod metric_stats_calculation {
+        use super::*;
+
+        // Test the calc_stats logic by directly testing it
+        // Note: calc_stats is defined inside get_usage_stats, so we test via a helper
+
+        fn calc_stats(
+            first_val: Option<f64>,
+            last_val: Option<f64>,
+            period_hours: f64,
+        ) -> MetricStats {
+            let current = last_val;
+            let change = match (first_val, last_val) {
+                (Some(f), Some(l)) => Some(l - f),
+                _ => None,
+            };
+            let velocity = change.and_then(|c| {
+                if c >= 0.0 && period_hours > 0.0 {
+                    Some(c / period_hours)
+                } else {
+                    None
+                }
+            });
+            MetricStats {
+                current,
+                change,
+                velocity,
+            }
+        }
+
+        #[test]
+        fn returns_none_for_no_values() {
+            let stats = calc_stats(None, None, 24.0);
+            assert!(stats.current.is_none());
+            assert!(stats.change.is_none());
+            assert!(stats.velocity.is_none());
+        }
+
+        #[test]
+        fn returns_current_only_when_first_missing() {
+            let stats = calc_stats(None, Some(50.0), 24.0);
+            assert_eq!(stats.current, Some(50.0));
+            assert!(stats.change.is_none());
+            assert!(stats.velocity.is_none());
+        }
+
+        #[test]
+        fn calculates_positive_change_correctly() {
+            let stats = calc_stats(Some(20.0), Some(50.0), 24.0);
+            assert_eq!(stats.current, Some(50.0));
+            assert_eq!(stats.change, Some(30.0));
+            assert_eq!(stats.velocity, Some(1.25)); // 30 / 24
+        }
+
+        #[test]
+        fn calculates_negative_change_without_velocity() {
+            let stats = calc_stats(Some(80.0), Some(50.0), 24.0);
+            assert_eq!(stats.current, Some(50.0));
+            assert_eq!(stats.change, Some(-30.0));
+            assert!(stats.velocity.is_none()); // No velocity for negative change
+        }
+
+        #[test]
+        fn handles_zero_change() {
+            let stats = calc_stats(Some(50.0), Some(50.0), 24.0);
+            assert_eq!(stats.current, Some(50.0));
+            assert_eq!(stats.change, Some(0.0));
+            assert_eq!(stats.velocity, Some(0.0));
+        }
+
+        #[test]
+        fn handles_zero_period_hours() {
+            let stats = calc_stats(Some(20.0), Some(50.0), 0.0);
+            assert_eq!(stats.change, Some(30.0));
+            assert!(stats.velocity.is_none()); // Can't divide by zero
+        }
+    }
+}

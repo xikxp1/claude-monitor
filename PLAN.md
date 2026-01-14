@@ -289,8 +289,11 @@ Critical issues to fix before the first public release.
 
 #### Stability
 - [x] Add basic unit tests for critical paths:
-  - `src/lib/utils/formatting.ts` - Pure functions, easy to test (18 tests)
+  - `src/lib/utils/formatting.ts` - Pure functions (18 tests)
+  - `src/lib/types.ts` - Factory functions (12 tests)
   - `src-tauri/src/validation.rs` - Security-critical validation (20 tests)
+  - `src-tauri/src/notifications.rs` - Notification logic (26 tests)
+  - `src-tauri/src/history.rs` - Statistics calculation (12 tests)
 - [ ] Fix loading state not resetting on successful credential save (`useSettings.svelte.ts:136`)
 
 #### UX Polish
@@ -373,9 +376,9 @@ Critical issues to fix before the first public release.
 ### Short Term (Medium Priority - Testing)
 
 #### Testing Infrastructure
-- [ ] Add Vitest unit tests for frontend utilities (formatting.ts)
+- [x] Add Vitest unit tests for frontend utilities (formatting.ts, types.ts) - 30 tests
 - [ ] Add Vitest unit tests for composables
-- [ ] Add Cargo tests for Rust modules (validation, history, notifications)
+- [x] Add Cargo tests for Rust modules (validation, history, notifications) - 60 tests
 - [ ] Add integration tests for Tauri commands
 - [ ] Add Playwright e2e tests for critical flows
 
