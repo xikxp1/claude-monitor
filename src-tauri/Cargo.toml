@@ -41,7 +41,7 @@ log = "0.4.29"
 
 # macOS-only: NSPopover for native popover behavior
 [target.'cfg(target_os = "macos")'.dependencies]
-tauri-plugin-nspopover = { git = "https://github.com/freethinkel/tauri-nspopover-plugin.git", version = "4.0.0" }
+tauri-plugin-nspopover = { git = "https://github.com/xikxp1/tauri-nspopover-plugin.git", branch = "fix_nsview_stale_refs" }
 
 # Windows/Linux only: Positioner for tray-relative window positioning
 [target.'cfg(not(target_os = "macos"))'.dependencies]
