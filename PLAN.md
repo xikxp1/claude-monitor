@@ -311,7 +311,7 @@ Critical issues to fix before the first public release.
 - [ ] Add debouncing to settings form changes
 
 #### UX Improvements
-- [ ] Show loading state during initial credential setup
+- [x] Show loading state during initial credential setup
 
 #### Tray Menu Updates
 - [x] Show usage percentage in tray tooltip

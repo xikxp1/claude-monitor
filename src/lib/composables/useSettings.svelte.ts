@@ -122,6 +122,7 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
    * Save credentials to backend
    */
   async function saveCredentials() {
+    const wasConfigured = isConfigured;
     loading = true;
     error = null;
 
@@ -139,7 +140,13 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
       isConfigured = await invoke<boolean>("get_is_configured");
 
       showSettings = false;
-      loading = false;
+
+      // For initial setup, keep loading=true while waiting for first data fetch
+      // The backend event handler will set loading=false when data arrives
+      if (wasConfigured) {
+        loading = false;
+      }
+
       onSuccess?.("Credentials saved");
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to save settings";
