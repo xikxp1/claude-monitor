@@ -297,7 +297,7 @@ Critical issues to fix before the first public release.
 - [x] Fix loading state not resetting on successful credential save (`useSettings.svelte.ts:131`)
 
 #### UX Polish
-- [ ] Add confirmation toast/feedback when settings are saved successfully
+- [x] Add confirmation toast/feedback when settings are saved successfully
 - [ ] Better error messages for common failures (401 = "Session expired", network errors)
 
 ---

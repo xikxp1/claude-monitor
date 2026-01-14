@@ -2,7 +2,8 @@
   import { onMount } from "svelte";
   import UsageLineChart from "$lib/components/charts/UsageLineChart.svelte";
   import NotificationSettingsComponent from "$lib/components/NotificationSettings.svelte";
-  import { useAnalytics, useSettings, useUsageData } from "$lib/composables";
+  import ToastContainer from "$lib/components/ToastContainer.svelte";
+  import { useAnalytics, useSettings, useToast, useUsageData } from "$lib/composables";
   import { initHistoryStorage } from "$lib/historyStorage";
   import type { UsagePeriod } from "$lib/types";
   import {
@@ -13,7 +14,11 @@
   } from "$lib/utils";
 
   // Initialize composables
-  const settings = useSettings();
+  const toast = useToast();
+  const settings = useSettings({
+    onSuccess: (msg) => toast.success(msg),
+    onError: (msg) => toast.error(msg),
+  });
   const analytics = useAnalytics();
 
   // Usage data needs callbacks to interact with settings
@@ -417,4 +422,6 @@
       </section>
     {/if}
   {/if}
+
+  <ToastContainer toasts={toast.toasts} onDismiss={toast.dismiss} />
 </main>

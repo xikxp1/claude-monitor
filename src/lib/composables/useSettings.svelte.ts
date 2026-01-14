@@ -13,7 +13,13 @@ import { cleanupOldData } from "$lib/historyStorage";
 import type { NotificationSettings } from "$lib/types";
 import { getDefaultNotificationSettings } from "$lib/types";
 
-export function useSettings() {
+export interface SettingsCallbacks {
+  onSuccess?: (message: string) => void;
+  onError?: (message: string) => void;
+}
+
+export function useSettings(callbacks: SettingsCallbacks = {}) {
+  const { onSuccess, onError } = callbacks;
   const store = new LazyStore("settings.json", {
     autoSave: true,
     defaults: {},
@@ -129,9 +135,11 @@ export function useSettings() {
 
       showSettings = false;
       loading = false;
+      onSuccess?.("Credentials saved");
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to save settings";
       loading = false;
+      onError?.(error);
     }
   }
 
@@ -144,8 +152,10 @@ export function useSettings() {
       await store.set("notification_settings", newSettings);
       // Sync to backend for backend-driven notifications
       await invoke("set_notification_settings", { settings: newSettings });
+      onSuccess?.("Notification settings saved");
     } catch (e) {
-      console.error("Failed to save notification settings:", e);
+      const msg = e instanceof Error ? e.message : "Failed to save notification settings";
+      onError?.(msg);
     }
   }
 
@@ -167,8 +177,10 @@ export function useSettings() {
         enabled: newAutoRefreshEnabled,
         intervalMinutes: newRefreshIntervalMinutes,
       });
+      onSuccess?.("Settings saved");
     } catch (e) {
-      console.error("Failed to save general settings:", e);
+      const msg = e instanceof Error ? e.message : "Failed to save settings";
+      onError?.(msg);
     }
   }
 
@@ -183,8 +195,10 @@ export function useSettings() {
         await disableAutostart();
       }
       autostartEnabled = enabled;
+      onSuccess?.(enabled ? "Autostart enabled" : "Autostart disabled");
     } catch (e) {
-      console.error("Failed to toggle autostart:", e);
+      const msg = e instanceof Error ? e.message : "Failed to toggle autostart";
+      onError?.(msg);
     }
   }
 
@@ -197,8 +211,10 @@ export function useSettings() {
     try {
       await store.set("data_retention_days", days);
       await cleanupOldData(days);
-    } catch {
-      // Ignore errors - non-critical
+      onSuccess?.("Data retention updated");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to save retention settings";
+      onError?.(msg);
     }
   }
 
@@ -221,8 +237,10 @@ export function useSettings() {
 
       // Sync reset notification settings to backend
       await invoke("set_notification_settings", { settings: notificationSettings });
+      onSuccess?.("Settings cleared");
     } catch (e) {
-      console.error("Failed to clear settings:", e);
+      const msg = e instanceof Error ? e.message : "Failed to clear settings";
+      onError?.(msg);
     }
   }
 
