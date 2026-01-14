@@ -1,104 +1,85 @@
 # Claude Monitor
 
-A lightweight desktop application for monitoring Claude API usage. Runs in the system tray and provides a window to view real-time usage statistics.
+A lightweight system tray application for monitoring your Claude API usage in real-time.
+
+<p align="center">
+  <img src="docs/assets/02_usage.png" alt="Usage Dashboard" width="350">
+</p>
 
 ## Features
 
-- **System Tray Integration**: Runs quietly in the background with a tray icon
-- **Usage Dashboard**: Visual display of API usage metrics
-- **Real-time Updates**: Auto-refreshes usage data at configurable intervals
-- **Cross-Platform**: Works on macOS, Windows, and Linux
-- **Lightweight**: Built with Tauri for minimal resource usage
+- **Real-time Usage Tracking** — Monitor 5-hour, 7-day, Sonnet, and Opus usage limits
+- **Usage Analytics** — Visualize usage trends over time (1h to 30d)
+- **Smart Notifications** — Get alerts at custom thresholds or time intervals
+- **Auto-refresh** — Configurable background updates (1-30 min)
+- **System Tray** — Runs quietly in the background with usage in tooltip
+- **Auto-update** — Automatic update checks with one-click install
+- **Cross-platform** — macOS, Windows, and Linux
 
-## Tech Stack
-
-- **Frontend**: SvelteKit 5 + TypeScript
-- **Backend**: Rust (Tauri 2)
-- **Build Tool**: Vite
-- **Package Manager**: Bun
-
-## Prerequisites
-
-- [Rust](https://rustup.rs/) (latest stable)
-- [Bun](https://bun.sh/) (or Node.js 18+)
-- Platform-specific dependencies for Tauri:
-  - **macOS**: Xcode Command Line Tools
-  - **Windows**: Visual Studio Build Tools, WebView2
-  - **Linux**: See [Tauri prerequisites](https://tauri.app/start/prerequisites/)
+<p align="center">
+  <img src="docs/assets/03_analytics.png" alt="Analytics" width="350">
+  <img src="docs/assets/04_settings_notifications.png" alt="Notifications" width="350">
+</p>
 
 ## Installation
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/xikxp1/claude-monitor.git
-   cd claude-monitor
-   ```
+Download the latest release for your platform from [GitHub Releases](https://github.com/xikxp1/claude-monitor/releases):
 
-2. Install dependencies:
-   ```bash
-   bun install
-   ```
+| Platform | Download |
+|----------|----------|
+| macOS | `.dmg` (Universal) |
+| Windows | `.msi` or `.exe` |
+| Linux | `.AppImage` or `.deb` |
 
-3. Run in development mode:
-   ```bash
-   bun run tauri dev
-   ```
+### Setup
 
-4. Build for production:
-   ```bash
-   bun run tauri build
-   ```
+1. Launch the app — it will appear in your system tray
+2. Click the tray icon to open the setup window
+3. Enter your Organization ID and Session Token
 
-## Configuration
+<p align="center">
+  <img src="docs/assets/01_setup.png" alt="Setup" width="350">
+</p>
 
-The application requires authentication with Claude API. On first launch, you'll be prompted to configure:
+**To get your session token:**
+1. Go to [claude.ai](https://claude.ai) and log in
+2. Open DevTools (F12) → Application → Cookies → claude.ai
+3. Copy the `sessionKey` cookie value
 
-- **Organization ID**: Your Claude organization identifier
-- **Session Token**: Authentication token from claude.ai
+## Contributing
 
-## API Endpoint
+### Prerequisites
 
-The app fetches usage data from:
-```
-https://claude.ai/api/organizations/{org_id}/usage
-```
+- [Rust](https://rustup.rs/) (stable)
+- [Bun](https://bun.sh/)
+- Platform dependencies: [Tauri prerequisites](https://tauri.app/start/prerequisites/)
 
-## Project Structure
-
-```
-claude-monitor/
-├── src/                    # Frontend (SvelteKit)
-│   ├── routes/            # Page components
-│   └── lib/               # Shared utilities
-├── src-tauri/             # Backend (Rust/Tauri)
-│   ├── src/
-│   │   ├── lib.rs         # Main Tauri logic
-│   │   └── main.rs        # Entry point
-│   ├── Cargo.toml         # Rust dependencies
-│   └── tauri.conf.json    # Tauri configuration
-├── static/                # Static assets
-└── package.json           # Frontend dependencies
-```
-
-## Development
-
-### Running Tests
+### Development
 
 ```bash
-# Frontend tests (Vitest)
-bun run test
+# Clone and install
+git clone https://github.com/xikxp1/claude-monitor.git
+cd claude-monitor
+bun install
 
-# Frontend tests in watch mode
-bun run test:watch
+# Run in development
+bun run tauri dev
 
-# Rust tests
-cd src-tauri && cargo test
+# Run tests
+bun run test                      # Frontend
+cd src-tauri && cargo test        # Backend
+
+# Build for production
+bun run tauri build
 ```
 
-### Code Style
+### Project Structure
 
-- Frontend: Biome
-- Backend: rustfmt + clippy
+```
+src/                  # Frontend (SvelteKit 5 + TypeScript)
+src-tauri/            # Backend (Rust + Tauri 2)
+.github/workflows/    # CI/CD (test, build, release)
+```
 
 ## License
 
