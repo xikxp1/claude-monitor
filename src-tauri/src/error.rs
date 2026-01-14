@@ -3,13 +3,13 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AppError {
-    #[error("HTTP request failed: {0}")]
+    #[error("Network error. Check your internet connection.")]
     Http(#[from] reqwest::Error),
-    #[error("Invalid session token")]
+    #[error("Session expired. Please update your session token in Settings.")]
     InvalidToken,
-    #[error("Rate limited")]
+    #[error("Rate limited by Claude. Please wait a moment and try again.")]
     RateLimited,
-    #[error("Server error: {0}")]
+    #[error("{0}")]
     Server(String),
     #[error("Missing configuration: {0}")]
     MissingConfig(String),

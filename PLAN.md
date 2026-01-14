@@ -298,7 +298,7 @@ Critical issues to fix before the first public release.
 
 #### UX Polish
 - [x] Add confirmation toast/feedback when settings are saved successfully
-- [ ] Better error messages for common failures (401 = "Session expired", network errors)
+- [x] Better error messages for common failures (401 = "Session expired", network errors)
 
 ---
 

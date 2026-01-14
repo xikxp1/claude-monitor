@@ -34,8 +34,18 @@ pub async fn fetch_usage_from_api(org_id: &str, session_token: &str) -> Result<U
         }
         401 => Err(AppError::InvalidToken),
         429 => Err(AppError::RateLimited),
-        status => {
-            Err(AppError::Server(format!("HTTP {}", status)))
-        }
+        403 => Err(AppError::Server(
+            "Access denied. Check your organization ID.".to_string(),
+        )),
+        404 => Err(AppError::Server(
+            "Organization not found. Check your organization ID.".to_string(),
+        )),
+        500..=599 => Err(AppError::Server(
+            "Claude is experiencing issues. Please try again later.".to_string(),
+        )),
+        status => Err(AppError::Server(format!(
+            "Unexpected error (HTTP {}). Please try again.",
+            status
+        )))
     }
 }
