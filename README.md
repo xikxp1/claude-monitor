@@ -85,8 +85,11 @@ claude-monitor/
 ### Running Tests
 
 ```bash
-# Frontend tests
+# Frontend tests (Vitest)
 bun run test
+
+# Frontend tests in watch mode
+bun run test:watch
 
 # Rust tests
 cd src-tauri && cargo test

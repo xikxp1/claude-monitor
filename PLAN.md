@@ -282,15 +282,15 @@ Critical issues to fix before the first public release.
 - [ ] **Set Content Security Policy** - `tauri.conf.json:26` has `"csp": null`. Add proper CSP for security.
 
 #### Documentation
-- [ ] **Fix README test command** - README mentions `bun run test` but no test script exists in package.json. Either add tests or remove the section.
+- [x] **Fix README test command** - README mentions `bun run test` but no test script exists in package.json. Either add tests or remove the section.
 - [ ] **Update README project structure** - The structure section is outdated (doesn't show new modules like `composables/`, `charts/`, Rust modules).
 
 ### Should Fix (High Priority)
 
 #### Stability
-- [ ] Add basic unit tests for critical paths:
-  - `src/lib/utils/formatting.ts` - Pure functions, easy to test
-  - `src-tauri/src/validation.rs` - Security-critical validation
+- [x] Add basic unit tests for critical paths:
+  - `src/lib/utils/formatting.ts` - Pure functions, easy to test (18 tests)
+  - `src-tauri/src/validation.rs` - Security-critical validation (20 tests)
 - [ ] Fix loading state not resetting on successful credential save (`useSettings.svelte.ts:136`)
 
 #### UX Polish

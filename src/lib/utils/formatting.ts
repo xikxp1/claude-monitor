@@ -12,6 +12,9 @@ export function getUsageColor(utilization: number): string {
 export function formatResetTime(resets_at: string): string {
   try {
     const date = new Date(resets_at);
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
     const now = new Date();
     const diffMs = date.getTime() - now.getTime();
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
