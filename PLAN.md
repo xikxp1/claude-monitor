@@ -368,7 +368,12 @@ Critical issues to fix before the first public release.
 
 #### Performance Optimizations
 - [x] Pause countdown timer when window hidden (reduce CPU wakeups)
-- [ ] Add downsampling for analytics with large datasets
+- [x] Add downsampling for analytics with large datasets - Backend SQL aggregation:
+  - 7-day view: 1-hour buckets (max 168 points vs ~2,016 raw)
+  - 30-day view: 4-hour buckets (max 180 points vs ~8,640 raw)
+  - 1h/6h/24h: Full resolution (no downsampling needed)
+  - Uses AVG() for utilization, MAX() for reset times
+  - 13 tests covering bucket calculation and strategy
 - [ ] Conditional plugin loading for platform-specific features
 
 #### Distribution

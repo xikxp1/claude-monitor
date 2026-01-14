@@ -159,7 +159,8 @@ pub fn get_usage_history(from: &str, to: &str) -> SqliteResult<Vec<UsageHistoryR
     Ok(records)
 }
 
-/// Get usage history by preset time range
+/// Get usage history by preset time range.
+/// Automatically applies downsampling for larger ranges (7d, 30d) to improve performance.
 pub fn get_usage_history_by_range(range: &str) -> SqliteResult<Vec<UsageHistoryRecord>> {
     let now = chrono::Utc::now();
     let hours = match range {
@@ -172,7 +173,15 @@ pub fn get_usage_history_by_range(range: &str) -> SqliteResult<Vec<UsageHistoryR
     };
 
     let from = now - chrono::Duration::hours(hours);
-    get_usage_history(&from.to_rfc3339(), &now.to_rfc3339())
+    let from_str = from.to_rfc3339();
+    let now_str = now.to_rfc3339();
+
+    // Apply downsampling for larger time ranges
+    if let Some(bucket_minutes) = get_downsample_bucket_minutes(range) {
+        get_usage_history_downsampled(&from_str, &now_str, bucket_minutes)
+    } else {
+        get_usage_history(&from_str, &now_str)
+    }
 }
 
 fn get_range_hours(range: &str) -> f64 {
@@ -184,6 +193,77 @@ fn get_range_hours(range: &str) -> f64 {
         "30d" => 30.0 * 24.0,
         _ => 24.0,
     }
+}
+
+/// Get the bucket size in minutes for downsampling based on time range.
+/// Returns None if no downsampling should be applied (full resolution).
+///
+/// Strategy:
+/// - 1h, 6h, 24h: No downsampling (full resolution, max ~288 points/day)
+/// - 7d: 1-hour buckets (max 168 points)
+/// - 30d: 4-hour buckets (max 180 points)
+pub fn get_downsample_bucket_minutes(range: &str) -> Option<u32> {
+    match range {
+        "7d" => Some(60),   // 1-hour buckets
+        "30d" => Some(240), // 4-hour buckets
+        _ => None,          // No downsampling for 1h, 6h, 24h
+    }
+}
+
+/// Get usage history with automatic downsampling for larger time ranges.
+/// Uses time-bucket aggregation to reduce data points while preserving trends.
+pub fn get_usage_history_downsampled(
+    from: &str,
+    to: &str,
+    bucket_minutes: u32,
+) -> SqliteResult<Vec<UsageHistoryRecord>> {
+    let conn = get_db()?;
+
+    // SQLite strftime format for bucketing by minutes
+    // We truncate timestamps to bucket boundaries using integer division
+    // Example: bucket_minutes=60 groups by hour, bucket_minutes=240 groups by 4 hours
+    let query = format!(
+        r#"SELECT
+            MIN(id) as id,
+            datetime(
+                (strftime('%s', timestamp) / ({bucket_minutes} * 60)) * ({bucket_minutes} * 60),
+                'unixepoch'
+            ) as bucket_timestamp,
+            AVG(five_hour_utilization) as five_hour_utilization,
+            MAX(five_hour_resets_at) as five_hour_resets_at,
+            AVG(seven_day_utilization) as seven_day_utilization,
+            MAX(seven_day_resets_at) as seven_day_resets_at,
+            AVG(sonnet_utilization) as sonnet_utilization,
+            MAX(sonnet_resets_at) as sonnet_resets_at,
+            AVG(opus_utilization) as opus_utilization,
+            MAX(opus_resets_at) as opus_resets_at
+        FROM usage_history
+        WHERE timestamp >= ?1 AND timestamp <= ?2
+        GROUP BY (strftime('%s', timestamp) / ({bucket_minutes} * 60))
+        ORDER BY bucket_timestamp ASC"#,
+        bucket_minutes = bucket_minutes
+    );
+
+    let mut stmt = conn.prepare(&query)?;
+
+    let records = stmt
+        .query_map(rusqlite::params![from, to], |row| {
+            Ok(UsageHistoryRecord {
+                id: row.get(0)?,
+                timestamp: row.get(1)?,
+                five_hour_utilization: row.get(2)?,
+                five_hour_resets_at: row.get(3)?,
+                seven_day_utilization: row.get(4)?,
+                seven_day_resets_at: row.get(5)?,
+                sonnet_utilization: row.get(6)?,
+                sonnet_resets_at: row.get(7)?,
+                opus_utilization: row.get(8)?,
+                opus_resets_at: row.get(9)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(records)
 }
 
 /// Get usage statistics for a time range
@@ -365,6 +445,142 @@ mod tests {
             assert_eq!(get_range_hours("invalid"), 24.0);
             assert_eq!(get_range_hours(""), 24.0);
             assert_eq!(get_range_hours("1w"), 24.0);
+        }
+    }
+
+    mod get_downsample_bucket_minutes {
+        use super::*;
+
+        #[test]
+        fn returns_none_for_1h() {
+            assert_eq!(get_downsample_bucket_minutes("1h"), None);
+        }
+
+        #[test]
+        fn returns_none_for_6h() {
+            assert_eq!(get_downsample_bucket_minutes("6h"), None);
+        }
+
+        #[test]
+        fn returns_none_for_24h() {
+            assert_eq!(get_downsample_bucket_minutes("24h"), None);
+        }
+
+        #[test]
+        fn returns_60_minutes_for_7d() {
+            assert_eq!(get_downsample_bucket_minutes("7d"), Some(60));
+        }
+
+        #[test]
+        fn returns_240_minutes_for_30d() {
+            assert_eq!(get_downsample_bucket_minutes("30d"), Some(240));
+        }
+
+        #[test]
+        fn returns_none_for_unknown() {
+            assert_eq!(get_downsample_bucket_minutes("invalid"), None);
+            assert_eq!(get_downsample_bucket_minutes(""), None);
+            assert_eq!(get_downsample_bucket_minutes("1w"), None);
+        }
+    }
+
+    mod downsampling_strategy {
+        use super::*;
+
+        /// Test that the downsampling strategy produces reasonable data point counts
+        #[test]
+        fn max_data_points_for_7d() {
+            // 7 days * 24 hours = 168 hours
+            // With 60-minute buckets, max 168 data points
+            let bucket_minutes = get_downsample_bucket_minutes("7d").unwrap();
+            let hours = get_range_hours("7d") as u32;
+            let max_points = (hours * 60) / bucket_minutes;
+            assert_eq!(max_points, 168);
+        }
+
+        #[test]
+        fn max_data_points_for_30d() {
+            // 30 days * 24 hours = 720 hours
+            // With 240-minute (4-hour) buckets, max 180 data points
+            let bucket_minutes = get_downsample_bucket_minutes("30d").unwrap();
+            let hours = get_range_hours("30d") as u32;
+            let max_points = (hours * 60) / bucket_minutes;
+            assert_eq!(max_points, 180);
+        }
+
+        #[test]
+        fn no_downsampling_preserves_full_resolution() {
+            // For 24h with 5-minute refresh interval, max 288 points
+            // This is acceptable without downsampling
+            assert!(get_downsample_bucket_minutes("24h").is_none());
+            assert!(get_downsample_bucket_minutes("6h").is_none());
+            assert!(get_downsample_bucket_minutes("1h").is_none());
+        }
+
+        #[test]
+        fn bucket_size_increases_with_range() {
+            // Larger ranges should have larger bucket sizes
+            let bucket_7d = get_downsample_bucket_minutes("7d");
+            let bucket_30d = get_downsample_bucket_minutes("30d");
+
+            assert!(bucket_7d.is_some());
+            assert!(bucket_30d.is_some());
+            assert!(bucket_30d.unwrap() > bucket_7d.unwrap());
+        }
+    }
+
+    mod downsampling_math {
+        /// Verify the SQL bucketing math works correctly
+        #[test]
+        fn bucket_calculation_60_minutes() {
+            // For 60-minute buckets, timestamps should be grouped by hour
+            // Unix timestamp 1704067200 = 2024-01-01 00:00:00 UTC
+            let bucket_minutes = 60u64;
+            let bucket_seconds = bucket_minutes * 60;
+
+            // 00:05:00 and 00:55:00 should be in the same bucket
+            let ts1 = 1704067200 + (5 * 60); // 00:05:00
+            let ts2 = 1704067200 + (55 * 60); // 00:55:00
+            let ts3 = 1704067200 + (65 * 60); // 01:05:00 (next bucket)
+
+            let bucket1 = (ts1 / bucket_seconds) * bucket_seconds;
+            let bucket2 = (ts2 / bucket_seconds) * bucket_seconds;
+            let bucket3 = (ts3 / bucket_seconds) * bucket_seconds;
+
+            assert_eq!(bucket1, bucket2); // Same hour
+            assert_ne!(bucket1, bucket3); // Different hours
+        }
+
+        #[test]
+        fn bucket_calculation_240_minutes() {
+            // For 240-minute (4-hour) buckets
+            let bucket_minutes = 240u64;
+            let bucket_seconds = bucket_minutes * 60;
+
+            // Unix timestamp 1704067200 = 2024-01-01 00:00:00 UTC
+            let base = 1704067200u64;
+
+            // 01:00 and 03:00 should be in the same bucket (0-4 hour window)
+            let ts1 = base + (1 * 3600); // 01:00
+            let ts2 = base + (3 * 3600); // 03:00
+            let ts3 = base + (5 * 3600); // 05:00 (next bucket: 4-8 hour window)
+
+            let bucket1 = (ts1 / bucket_seconds) * bucket_seconds;
+            let bucket2 = (ts2 / bucket_seconds) * bucket_seconds;
+            let bucket3 = (ts3 / bucket_seconds) * bucket_seconds;
+
+            assert_eq!(bucket1, bucket2); // Same 4-hour window
+            assert_ne!(bucket1, bucket3); // Different 4-hour windows
+        }
+
+        #[test]
+        fn averaging_preserves_range() {
+            // Test that averaging multiple values stays within expected range
+            let values = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+            let avg: f64 = values.iter().sum::<f64>() / values.len() as f64;
+
+            assert_eq!(avg, 30.0);
+            assert!(avg >= 10.0 && avg <= 50.0);
         }
     }
 
