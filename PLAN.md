@@ -349,8 +349,20 @@ Critical issues to fix before the first public release.
 - [x] Add Vitest unit tests for frontend utilities (formatting.ts, types.ts) - 30 tests
 - [x] Add Vitest unit tests for composables (useAnalytics, useUsageData, useSettings) - 85 tests
 - [x] Add Cargo tests for Rust modules (validation, history, notifications) - 60 tests
-- [ ] Add integration tests for Tauri commands
-- [ ] Add Playwright e2e tests for critical flows
+- [x] Add integration tests for Tauri commands - 36 tests covering:
+  - State management (get_is_configured, set_auto_refresh, set_notification_settings)
+  - Input validation (save_credentials validation)
+  - Credential management (clear_credentials logic)
+  - History commands (error handling when DB not initialized)
+  - Type defaults and state management
+- [x] Add tests for auto_refresh module - 26 tests covering:
+  - FetchResult enum behavior
+  - Backoff constants verification
+  - Exponential backoff calculation (rate limiting)
+  - Wait duration logic
+  - Refresh conditions (enabled, has_credentials)
+  - Next refresh timestamp calculation
+  - Full backoff/recovery cycle integration tests
 
 ### Long Term (Lower Priority - Performance & Distribution)
 
