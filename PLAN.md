@@ -302,7 +302,7 @@ Critical issues to fix before the first public release.
 - [x] Add try-catch to all Tauri command invokes (`get_is_configured`, `set_auto_refresh`, `save_credentials`, `clear_credentials`, `refresh_now`)
 - [x] Add try-catch to all store operations (`saveNotificationSettings`, `saveGeneralSettings`, `saveDataRetention`, `clearSettings`)
 - [x] Session expired prompt with re-login option
-- [ ] Add exponential backoff on 429 rate limit errors
+- [x] Add exponential backoff on 429 rate limit errors
 
 #### State Management Fixes
 - [x] Add debouncing to settings form changes
