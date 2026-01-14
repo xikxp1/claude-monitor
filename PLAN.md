@@ -309,6 +309,7 @@ Critical issues to fix before the first public release.
 
 #### UX Improvements
 - [x] Show loading state during initial credential setup
+- [x] Split "Clear" into "Log Out" (credentials only) and "Reset All Settings" (factory reset with confirmation)
 
 #### Tray Menu Updates
 - [x] Show usage percentage in tray tooltip

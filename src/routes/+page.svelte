@@ -67,9 +67,17 @@
     analytics.showAnalytics = false;
   }
 
-  async function handleClearSettings() {
-    await settings.clearAll();
+  async function handleLogout() {
+    await settings.logout();
     usageData.reset();
+  }
+
+  let showResetConfirm = $state(false);
+
+  async function handleResetAll() {
+    await settings.resetAll();
+    usageData.reset();
+    showResetConfirm = false;
   }
 
   function getProgressClass(color: string): string {
@@ -222,10 +230,10 @@
               {#if settings.isConfigured}
                 <button
                   type="button"
-                  class="btn btn-error"
-                  onclick={handleClearSettings}
+                  class="btn btn-ghost"
+                  onclick={handleLogout}
                 >
-                  Clear
+                  Log Out
                 </button>
               {/if}
             </div>
@@ -318,6 +326,40 @@
                 <option value={90}>90 days</option>
               </select>
             </label>
+
+            <div class="divider my-1"></div>
+
+            {#if !showResetConfirm}
+              <button
+                type="button"
+                class="btn btn-error btn-sm"
+                onclick={() => (showResetConfirm = true)}
+              >
+                Reset All Settings
+              </button>
+            {:else}
+              <div class="bg-error/10 rounded-lg p-3 flex flex-col gap-2">
+                <p class="text-sm">
+                  This will clear your credentials and reset all settings to defaults.
+                </p>
+                <div class="flex gap-2">
+                  <button
+                    type="button"
+                    class="btn btn-error btn-sm"
+                    onclick={handleResetAll}
+                  >
+                    Confirm Reset
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm"
+                    onclick={() => (showResetConfirm = false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            {/if}
           </div>
         {/if}
       </section>

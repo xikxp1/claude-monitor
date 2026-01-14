@@ -431,11 +431,77 @@ describe("useSettings", () => {
     });
   });
 
-  describe("clearAll", () => {
+  describe("logout", () => {
     it("clears credentials from backend", async () => {
       const settings = useSettings({ onSuccess, onError });
 
-      await settings.clearAll();
+      await settings.logout();
+
+      expect(mockCommands.clearCredentials).toHaveBeenCalled();
+    });
+
+    it("resets only credential-related state", async () => {
+      const settings = useSettings({ onSuccess, onError });
+      settings.orgIdInput = "test";
+      settings.tokenInput = "test";
+      settings.showSettings = true;
+
+      await settings.logout();
+
+      expect(settings.isConfigured).toBe(false);
+      expect(settings.orgIdInput).toBe("");
+      expect(settings.tokenInput).toBe("");
+      expect(settings.showSettings).toBe(false);
+      expect(settings.error).toBeNull();
+    });
+
+    it("keeps other settings unchanged", async () => {
+      const settings = useSettings({ onSuccess, onError });
+
+      // Simulate changed settings
+      settings.saveGeneral(false, 10);
+
+      await settings.logout();
+
+      // General settings should be preserved
+      expect(settings.autoRefreshEnabled).toBe(false);
+      expect(settings.refreshIntervalMinutes).toBe(10);
+    });
+
+    it("does not clear store", async () => {
+      const settings = useSettings({ onSuccess, onError });
+
+      await settings.logout();
+
+      expect(mockStoreClear).not.toHaveBeenCalled();
+    });
+
+    it("calls onSuccess callback", async () => {
+      const settings = useSettings({ onSuccess, onError });
+
+      await settings.logout();
+
+      expect(onSuccess).toHaveBeenCalledWith("Logged out");
+    });
+
+    it("handles logout error", async () => {
+      mockCommands.clearCredentials.mockResolvedValue({
+        status: "error",
+        error: "Failed to clear credentials",
+      });
+
+      const settings = useSettings({ onSuccess, onError });
+      await settings.logout();
+
+      expect(onError).toHaveBeenCalledWith("Failed to clear credentials");
+    });
+  });
+
+  describe("resetAll", () => {
+    it("clears credentials from backend", async () => {
+      const settings = useSettings({ onSuccess, onError });
+
+      await settings.resetAll();
 
       expect(mockCommands.clearCredentials).toHaveBeenCalled();
     });
@@ -443,7 +509,7 @@ describe("useSettings", () => {
     it("clears store", async () => {
       const settings = useSettings({ onSuccess, onError });
 
-      await settings.clearAll();
+      await settings.resetAll();
 
       expect(mockStoreClear).toHaveBeenCalled();
     });
@@ -454,34 +520,52 @@ describe("useSettings", () => {
       settings.tokenInput = "test";
       settings.showSettings = true;
 
-      await settings.clearAll();
+      await settings.resetAll();
 
       expect(settings.refreshIntervalMinutes).toBe(5);
       expect(settings.autoRefreshEnabled).toBe(true);
+      expect(settings.dataRetentionDays).toBe(30);
       expect(settings.isConfigured).toBe(false);
       expect(settings.orgIdInput).toBe("");
       expect(settings.tokenInput).toBe("");
       expect(settings.showSettings).toBe(false);
+      expect(settings.error).toBeNull();
     });
 
     it("syncs reset notification settings to backend", async () => {
       const settings = useSettings({ onSuccess, onError });
 
-      await settings.clearAll();
+      await settings.resetAll();
 
       expect(mockCommands.setNotificationSettings).toHaveBeenCalledWith(
         getDefaultNotificationSettings(),
       );
     });
 
-    it("handles clear error", async () => {
+    it("syncs reset auto-refresh settings to backend", async () => {
+      const settings = useSettings({ onSuccess, onError });
+
+      await settings.resetAll();
+
+      expect(mockCommands.setAutoRefresh).toHaveBeenCalledWith(true, 5);
+    });
+
+    it("calls onSuccess callback", async () => {
+      const settings = useSettings({ onSuccess, onError });
+
+      await settings.resetAll();
+
+      expect(onSuccess).toHaveBeenCalledWith("All settings reset");
+    });
+
+    it("handles reset error", async () => {
       mockCommands.clearCredentials.mockResolvedValue({
         status: "error",
         error: "Failed to clear",
       });
 
       const settings = useSettings({ onSuccess, onError });
-      await settings.clearAll();
+      await settings.resetAll();
 
       expect(onError).toHaveBeenCalledWith("Failed to clear");
     });

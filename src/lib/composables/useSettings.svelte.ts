@@ -249,9 +249,28 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
   }
 
   /**
-   * Clear all settings
+   * Log out - clears only credentials, keeps other settings
    */
-  async function clearAll() {
+  async function logout() {
+    const result = await commands.clearCredentials();
+    if (result.status === "error") {
+      onError?.(result.error);
+      return;
+    }
+
+    isConfigured = false;
+    orgIdInput = "";
+    tokenInput = "";
+    showSettings = false;
+    error = null;
+
+    onSuccess?.("Logged out");
+  }
+
+  /**
+   * Reset all settings to defaults (factory reset)
+   */
+  async function resetAll() {
     const result = await commands.clearCredentials();
     if (result.status === "error") {
       onError?.(result.error);
@@ -263,15 +282,21 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     // Reset state variables
     refreshIntervalMinutes = 5;
     autoRefreshEnabled = true;
+    dataRetentionDays = 30;
     isConfigured = false;
     orgIdInput = "";
     tokenInput = "";
     notificationSettings = getDefaultNotificationSettings();
     showSettings = false;
+    error = null;
 
     // Sync reset notification settings to backend
     await commands.setNotificationSettings(notificationSettings);
-    onSuccess?.("Settings cleared");
+
+    // Reset auto-refresh settings to backend
+    await commands.setAutoRefresh(true, 5);
+
+    onSuccess?.("All settings reset");
   }
 
   function open() {
@@ -373,7 +398,8 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     saveGeneral,
     toggleAutostart,
     saveRetention,
-    clearAll,
+    logout,
+    resetAll,
     open,
     close,
     toggle,
