@@ -5009,7 +5009,7 @@ dependencies = [
 [[package]]
 name = "tauri-plugin-nspopover"
 version = "4.0.0"
-source = "git+https://github.com/xikxp1/tauri-nspopover-plugin.git?branch=fix_nsview_stale_refs#d93db3c9cab09f832b71cf27e7e2aa5f459b2a36"
+source = "git+https://github.com/xikxp1/tauri-nspopover-plugin.git?branch=fix_nsview_stale_refs#786b01e7b1d33a333d15c076373eb4ae8e24a2d4"
 dependencies = [
  "cocoa 0.25.0",
  "objc",
