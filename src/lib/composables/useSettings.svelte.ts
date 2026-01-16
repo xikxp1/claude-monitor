@@ -239,9 +239,9 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
    */
   async function toggleHourlyRefresh(enabled: boolean) {
     try {
-      hourlyRefreshEnabled = enabled;
       await store.set("hourly_refresh_enabled", enabled);
       await commands.setHourlyRefresh(enabled);
+      hourlyRefreshEnabled = enabled;
       onSuccess?.(enabled ? "Hourly refresh enabled" : "Hourly refresh disabled");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to save hourly refresh setting";

@@ -57,6 +57,25 @@ pub fn should_refresh(enabled: bool, has_credentials: bool) -> bool {
 
 /// Calculate seconds until the next hour starts, plus initial gap and jitter.
 /// Returns None if hourly refresh is disabled.
+/// `seconds_into_hour` is the number of seconds elapsed since the current hour started (0-3599).
+/// `jitter` is the random jitter to add (0-55 seconds typically).
+pub fn calculate_hourly_refresh_delay_with_params(
+    hourly_refresh_enabled: bool,
+    seconds_into_hour: u64,
+    jitter: u64,
+) -> Option<u64> {
+    if !hourly_refresh_enabled {
+        return None;
+    }
+
+    let seconds_until_next_hour = 3600 - seconds_into_hour;
+    let total_delay = seconds_until_next_hour + HOURLY_REFRESH_INITIAL_GAP_SECS + jitter;
+
+    Some(total_delay)
+}
+
+/// Calculate seconds until the next hour starts, plus initial gap and random jitter.
+/// Returns None if hourly refresh is disabled.
 pub fn calculate_hourly_refresh_delay(hourly_refresh_enabled: bool) -> Option<u64> {
     if !hourly_refresh_enabled {
         return None;
@@ -64,32 +83,30 @@ pub fn calculate_hourly_refresh_delay(hourly_refresh_enabled: bool) -> Option<u6
 
     let now = Utc::now();
     let seconds_into_hour = now.minute() as u64 * 60 + now.second() as u64;
-    let seconds_until_next_hour = 3600 - seconds_into_hour;
-
-    // Add initial gap and random jitter
     let jitter = rand::rng().random_range(0..=HOURLY_REFRESH_JITTER_MAX_SECS);
-    let total_delay = seconds_until_next_hour + HOURLY_REFRESH_INITIAL_GAP_SECS + jitter;
 
-    Some(total_delay)
+    calculate_hourly_refresh_delay_with_params(true, seconds_into_hour, jitter)
 }
 
 /// Calculate the next refresh timestamp in milliseconds.
 /// Takes into account both regular interval and hourly refresh (whichever is sooner).
+/// `now_ms` is the current timestamp in milliseconds.
+/// `hourly_delay_secs` is the pre-calculated hourly refresh delay (if any).
 pub fn calculate_next_refresh_at(
     enabled: bool,
     interval_minutes: u32,
-    hourly_refresh_enabled: bool,
+    now_ms: i64,
+    hourly_delay_secs: Option<u64>,
 ) -> Option<i64> {
     if !enabled {
         return None;
     }
 
-    let now = Utc::now().timestamp_millis();
-    let regular_next = now + (interval_minutes as i64 * 60 * 1000);
+    let regular_next = now_ms + (interval_minutes as i64 * 60 * 1000);
 
-    // If hourly refresh is enabled, use whichever is sooner
-    if let Some(hourly_delay_secs) = calculate_hourly_refresh_delay(hourly_refresh_enabled) {
-        let hourly_next = now + (hourly_delay_secs as i64 * 1000);
+    // If hourly refresh delay is provided, use whichever is sooner
+    if let Some(delay_secs) = hourly_delay_secs {
+        let hourly_next = now_ms + (delay_secs as i64 * 1000);
         Some(regular_next.min(hourly_next))
     } else {
         Some(regular_next)
@@ -149,8 +166,10 @@ pub async fn do_fetch_and_emit(
             }
 
             // Calculate next refresh time (considers both regular interval and hourly refresh)
+            let now_ms = Utc::now().timestamp_millis();
+            let hourly_delay = calculate_hourly_refresh_delay(hourly_refresh_enabled);
             let next_refresh_at =
-                calculate_next_refresh_at(enabled, interval_minutes, hourly_refresh_enabled);
+                calculate_next_refresh_at(enabled, interval_minutes, now_ms, hourly_delay);
 
             // Emit usage update event
             let _ = app.emit(
@@ -170,8 +189,10 @@ pub async fn do_fetch_and_emit(
             let is_rate_limited = matches!(e, AppError::RateLimited);
 
             // Calculate next refresh time even on error (for retry countdown)
+            let now_ms = Utc::now().timestamp_millis();
+            let hourly_delay = calculate_hourly_refresh_delay(hourly_refresh_enabled);
             let next_refresh_at =
-                calculate_next_refresh_at(enabled, interval_minutes, hourly_refresh_enabled);
+                calculate_next_refresh_at(enabled, interval_minutes, now_ms, hourly_delay);
 
             let _ = app.emit(
                 "usage-error",
@@ -406,41 +427,87 @@ mod tests {
         }
     }
 
-    mod calculate_next_refresh_at_tests {
+    mod calculate_hourly_refresh_delay_tests {
         use super::*;
 
         #[test]
+        fn returns_none_when_disabled() {
+            assert!(calculate_hourly_refresh_delay_with_params(false, 0, 0).is_none());
+            assert!(calculate_hourly_refresh_delay_with_params(false, 1800, 30).is_none());
+        }
+
+        #[test]
+        fn calculates_delay_at_start_of_hour() {
+            // At 00:00 of the hour, with 0 jitter
+            let delay = calculate_hourly_refresh_delay_with_params(true, 0, 0).unwrap();
+            // Should be 3600 (full hour) + 5 (initial gap) = 3605 seconds
+            assert_eq!(delay, 3605);
+        }
+
+        #[test]
+        fn calculates_delay_at_middle_of_hour() {
+            // At 30:00 of the hour (1800 seconds in), with 0 jitter
+            let delay = calculate_hourly_refresh_delay_with_params(true, 1800, 0).unwrap();
+            // Should be 1800 (remaining) + 5 (initial gap) = 1805 seconds
+            assert_eq!(delay, 1805);
+        }
+
+        #[test]
+        fn calculates_delay_near_end_of_hour() {
+            // At 59:00 of the hour (3540 seconds in), with 0 jitter
+            let delay = calculate_hourly_refresh_delay_with_params(true, 3540, 0).unwrap();
+            // Should be 60 (remaining) + 5 (initial gap) = 65 seconds
+            assert_eq!(delay, 65);
+        }
+
+        #[test]
+        fn adds_jitter_to_delay() {
+            // At 30:00 of the hour, with 30 seconds jitter
+            let delay = calculate_hourly_refresh_delay_with_params(true, 1800, 30).unwrap();
+            // Should be 1800 (remaining) + 5 (initial gap) + 30 (jitter) = 1835 seconds
+            assert_eq!(delay, 1835);
+        }
+
+        #[test]
+        fn adds_max_jitter() {
+            // With maximum jitter (55 seconds)
+            let delay = calculate_hourly_refresh_delay_with_params(true, 0, 55).unwrap();
+            // Should be 3600 + 5 + 55 = 3660 seconds
+            assert_eq!(delay, 3660);
+        }
+    }
+
+    mod calculate_next_refresh_at_tests {
+        use super::*;
+
+        const NOW_MS: i64 = 1704067200000; // 2024-01-01 00:00:00 UTC
+
+        #[test]
         fn returns_some_when_enabled() {
-            let result = calculate_next_refresh_at(true, 5, false);
+            let result = calculate_next_refresh_at(true, 5, NOW_MS, None);
             assert!(result.is_some());
 
             let timestamp = result.unwrap();
-            let now = chrono::Utc::now().timestamp_millis();
-
-            // Should be approximately 5 minutes in the future (with some tolerance)
-            let expected_delta = 5 * 60 * 1000; // 5 minutes in ms
-            let actual_delta = timestamp - now;
-
-            // Allow 1 second tolerance for test execution time
-            assert!(
-                actual_delta >= expected_delta - 1000 && actual_delta <= expected_delta + 1000,
-                "Expected delta around {}ms, got {}ms",
-                expected_delta,
-                actual_delta
-            );
+            // Should be exactly 5 minutes in the future
+            let expected = NOW_MS + (5 * 60 * 1000);
+            assert_eq!(timestamp, expected);
         }
 
         #[test]
         fn returns_none_when_disabled() {
-            assert!(calculate_next_refresh_at(false, 5, false).is_none());
-            assert!(calculate_next_refresh_at(false, 10, false).is_none());
+            assert!(calculate_next_refresh_at(false, 5, NOW_MS, None).is_none());
+            assert!(calculate_next_refresh_at(false, 10, NOW_MS, None).is_none());
         }
 
         #[test]
         fn different_intervals_produce_different_timestamps() {
-            let result_1min = calculate_next_refresh_at(true, 1, false).unwrap();
-            let result_5min = calculate_next_refresh_at(true, 5, false).unwrap();
-            let result_10min = calculate_next_refresh_at(true, 10, false).unwrap();
+            let result_1min = calculate_next_refresh_at(true, 1, NOW_MS, None).unwrap();
+            let result_5min = calculate_next_refresh_at(true, 5, NOW_MS, None).unwrap();
+            let result_10min = calculate_next_refresh_at(true, 10, NOW_MS, None).unwrap();
+
+            assert_eq!(result_1min, NOW_MS + 60_000);
+            assert_eq!(result_5min, NOW_MS + 300_000);
+            assert_eq!(result_10min, NOW_MS + 600_000);
 
             // Larger intervals should produce later timestamps
             assert!(result_5min > result_1min);
@@ -448,15 +515,31 @@ mod tests {
         }
 
         #[test]
-        fn hourly_refresh_returns_sooner_timestamp_when_hour_is_close() {
-            // When hourly refresh is enabled and next hour is sooner than interval,
-            // the function should return the hourly refresh time
-            let result_without_hourly = calculate_next_refresh_at(true, 30, false).unwrap();
-            let result_with_hourly = calculate_next_refresh_at(true, 30, true).unwrap();
+        fn uses_hourly_delay_when_sooner() {
+            // Regular interval is 30 minutes (1800 seconds)
+            // Hourly delay is 10 minutes (600 seconds) - sooner
+            let hourly_delay = Some(600u64);
+            let result = calculate_next_refresh_at(true, 30, NOW_MS, hourly_delay).unwrap();
 
-            // With hourly enabled, the result should be <= the regular interval
-            // (could be equal if we're right after an hour boundary)
-            assert!(result_with_hourly <= result_without_hourly);
+            // Should use the hourly delay since it's sooner
+            assert_eq!(result, NOW_MS + 600_000);
+        }
+
+        #[test]
+        fn uses_regular_interval_when_sooner() {
+            // Regular interval is 5 minutes (300 seconds)
+            // Hourly delay is 50 minutes (3000 seconds) - later
+            let hourly_delay = Some(3000u64);
+            let result = calculate_next_refresh_at(true, 5, NOW_MS, hourly_delay).unwrap();
+
+            // Should use the regular interval since it's sooner
+            assert_eq!(result, NOW_MS + 300_000);
+        }
+
+        #[test]
+        fn ignores_hourly_delay_when_none() {
+            let result = calculate_next_refresh_at(true, 5, NOW_MS, None).unwrap();
+            assert_eq!(result, NOW_MS + 300_000);
         }
     }
 
@@ -494,7 +577,8 @@ mod tests {
             assert!(!should_refresh(false, true));
 
             // Next refresh should be None
-            assert!(calculate_next_refresh_at(false, 5, false).is_none());
+            let now_ms = 1704067200000i64;
+            assert!(calculate_next_refresh_at(false, 5, now_ms, None).is_none());
         }
 
         #[test]
@@ -503,7 +587,8 @@ mod tests {
             assert!(!should_refresh(true, false));
 
             // But next refresh timestamp is still calculated (frontend handles display)
-            assert!(calculate_next_refresh_at(true, 5, false).is_some());
+            let now_ms = 1704067200000i64;
+            assert!(calculate_next_refresh_at(true, 5, now_ms, None).is_some());
         }
     }
 }
