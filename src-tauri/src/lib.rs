@@ -13,7 +13,7 @@ use auto_refresh::auto_refresh_loop;
 use commands::{
     cleanup_history, clear_credentials, get_default_settings, get_is_configured, get_usage,
     get_usage_history_by_range, get_usage_stats, refresh_now, save_credentials, set_auto_refresh,
-    set_notification_settings,
+    set_hourly_refresh, set_notification_settings,
 };
 use tray::create_tray;
 use types::{AppState, AutoRefreshConfig, NotificationSettings, NotificationState};
@@ -35,6 +35,7 @@ pub fn run() {
         get_is_configured,
         clear_credentials,
         set_auto_refresh,
+        set_hourly_refresh,
         refresh_now,
         set_notification_settings,
         get_usage_history_by_range,
@@ -97,6 +98,15 @@ pub fn run() {
             // Try to load credentials from OS keychain
             let initial_credentials = credentials::load_credentials();
 
+            // Load hourly refresh setting from store
+            let hourly_refresh_enabled = match app.store("settings.json") {
+                Ok(store) => store
+                    .get("hourly_refresh_enabled")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+                Err(_) => false,
+            };
+
             // Create initial config with loaded credentials
             let initial_config = match initial_credentials {
                 Some((org_id, token)) => AutoRefreshConfig {
@@ -104,8 +114,12 @@ pub fn run() {
                     session_token: Some(token),
                     enabled: true,
                     interval_minutes: 5,
+                    hourly_refresh_enabled,
                 },
-                None => AutoRefreshConfig::default(),
+                None => AutoRefreshConfig {
+                    hourly_refresh_enabled,
+                    ..AutoRefreshConfig::default()
+                },
             };
 
             // Load notification settings from store

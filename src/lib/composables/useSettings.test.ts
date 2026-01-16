@@ -37,6 +37,7 @@ vi.mock("$lib/bindings.generated", () => ({
     saveCredentials: vi.fn(() => Promise.resolve({ status: "ok", data: null })),
     clearCredentials: vi.fn(() => Promise.resolve({ status: "ok", data: null })),
     setAutoRefresh: vi.fn(() => Promise.resolve({ status: "ok", data: null })),
+    setHourlyRefresh: vi.fn(() => Promise.resolve({ status: "ok", data: null })),
     setNotificationSettings: vi.fn(() => Promise.resolve({ status: "ok", data: null })),
   },
 }));

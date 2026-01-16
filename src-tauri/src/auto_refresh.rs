@@ -4,6 +4,8 @@ use crate::history::save_usage_snapshot;
 use crate::notifications::{process_notifications, reset_notification_state_if_needed};
 use crate::tray::update_tray_tooltip;
 use crate::types::{AppState, UsageErrorEvent, UsageUpdateEvent};
+use chrono::{Timelike, Utc};
+use rand::Rng;
 use std::sync::Arc;
 use tauri::Emitter;
 
@@ -20,6 +22,10 @@ pub enum FetchResult {
 pub const INITIAL_BACKOFF_SECS: u64 = 30; // Start with 30 seconds
 pub const MAX_BACKOFF_SECS: u64 = 300; // Cap at 5 minutes
 pub const BACKOFF_MULTIPLIER: u64 = 2; // Double each time
+
+/// Hourly refresh configuration
+pub const HOURLY_REFRESH_INITIAL_GAP_SECS: u64 = 5; // Wait 5 seconds after hour starts
+pub const HOURLY_REFRESH_JITTER_MAX_SECS: u64 = 55; // Add up to 55 seconds of jitter
 
 /// Calculate the next backoff duration based on the current backoff and fetch result.
 /// Returns the new backoff value in seconds (0 means no backoff active).
@@ -44,43 +50,92 @@ pub fn calculate_next_backoff(current_backoff: u64, result: FetchResult) -> u64 
     }
 }
 
-/// Calculate the wait duration based on backoff and interval settings.
-/// If backoff is active (> 0), use backoff duration; otherwise use normal interval.
-pub fn calculate_wait_duration(backoff_secs: u64, interval_minutes: u32) -> std::time::Duration {
-    if backoff_secs > 0 {
-        std::time::Duration::from_secs(backoff_secs)
-    } else {
-        std::time::Duration::from_secs(interval_minutes as u64 * 60)
-    }
-}
-
 /// Check if the auto-refresh loop should be active based on config.
 pub fn should_refresh(enabled: bool, has_credentials: bool) -> bool {
     enabled && has_credentials
 }
 
-/// Calculate the next refresh timestamp in milliseconds.
-pub fn calculate_next_refresh_at(enabled: bool, interval_minutes: u32) -> Option<i64> {
-    if enabled {
-        Some(chrono::Utc::now().timestamp_millis() + (interval_minutes as i64 * 60 * 1000))
-    } else {
-        None
+/// Calculate seconds until the next hour starts, plus initial gap and jitter.
+/// Returns None if hourly refresh is disabled.
+/// `seconds_into_hour` is the number of seconds elapsed since the current hour started (0-3599).
+/// `jitter` is the random jitter to add (0-55 seconds typically).
+pub fn calculate_hourly_refresh_delay_with_params(
+    hourly_refresh_enabled: bool,
+    seconds_into_hour: u64,
+    jitter: u64,
+) -> Option<u64> {
+    if !hourly_refresh_enabled {
+        return None;
     }
+
+    let seconds_until_next_hour = 3600 - seconds_into_hour;
+    let total_delay = seconds_until_next_hour + HOURLY_REFRESH_INITIAL_GAP_SECS + jitter;
+
+    Some(total_delay)
+}
+
+/// Calculate seconds until the next hour starts, plus initial gap and random jitter.
+/// Returns None if hourly refresh is disabled.
+pub fn calculate_hourly_refresh_delay(hourly_refresh_enabled: bool) -> Option<u64> {
+    if !hourly_refresh_enabled {
+        return None;
+    }
+
+    let now = Utc::now();
+    let seconds_into_hour = now.minute() as u64 * 60 + now.second() as u64;
+    let jitter = rand::rng().random_range(0..=HOURLY_REFRESH_JITTER_MAX_SECS);
+
+    calculate_hourly_refresh_delay_with_params(true, seconds_into_hour, jitter)
+}
+
+/// Calculate the next refresh timestamp in milliseconds.
+/// Takes into account both regular interval and hourly refresh (whichever is sooner).
+/// `now_ms` is the current timestamp in milliseconds.
+/// `hourly_delay_secs` is the pre-calculated hourly refresh delay (if any).
+pub fn calculate_next_refresh_at(
+    enabled: bool,
+    interval_minutes: u32,
+    now_ms: i64,
+    hourly_delay_secs: Option<u64>,
+) -> Option<i64> {
+    if !enabled {
+        return None;
+    }
+
+    let regular_next = now_ms + (interval_minutes as i64 * 60 * 1000);
+
+    // If hourly refresh delay is provided, use whichever is sooner
+    if let Some(delay_secs) = hourly_delay_secs {
+        let hourly_next = now_ms + (delay_secs as i64 * 1000);
+        Some(regular_next.min(hourly_next))
+    } else {
+        Some(regular_next)
+    }
+}
+
+/// Result of a fetch operation, including the next refresh timestamp
+pub struct FetchOutput {
+    pub result: FetchResult,
+    pub next_refresh_at: Option<i64>,
 }
 
 pub async fn do_fetch_and_emit(
     app: &tauri::AppHandle,
     state: &AppState,
     interval_minutes: u32,
-) -> FetchResult {
+) -> FetchOutput {
     let config = state.config.lock().await;
     let org_id = config.organization_id.clone();
     let session_token = config.session_token.clone();
     let enabled = config.enabled;
+    let hourly_refresh_enabled = config.hourly_refresh_enabled;
     drop(config);
 
     let (Some(org_id), Some(session_token)) = (org_id, session_token) else {
-        return FetchResult::NoCredentials;
+        return FetchOutput {
+            result: FetchResult::NoCredentials,
+            next_refresh_at: None,
+        };
     };
 
     match fetch_usage_from_api(&org_id, &session_token).await {
@@ -110,8 +165,11 @@ pub async fn do_fetch_and_emit(
                 *notification_state = new_state;
             }
 
-            // Calculate next refresh time
-            let next_refresh_at = calculate_next_refresh_at(enabled, interval_minutes);
+            // Calculate next refresh time (considers both regular interval and hourly refresh)
+            let now_ms = Utc::now().timestamp_millis();
+            let hourly_delay = calculate_hourly_refresh_delay(hourly_refresh_enabled);
+            let next_refresh_at =
+                calculate_next_refresh_at(enabled, interval_minutes, now_ms, hourly_delay);
 
             // Emit usage update event
             let _ = app.emit(
@@ -122,10 +180,19 @@ pub async fn do_fetch_and_emit(
                 },
             );
 
-            FetchResult::Success
+            FetchOutput {
+                result: FetchResult::Success,
+                next_refresh_at,
+            }
         }
         Err(e) => {
             let is_rate_limited = matches!(e, AppError::RateLimited);
+
+            // Calculate next refresh time even on error (for retry countdown)
+            let now_ms = Utc::now().timestamp_millis();
+            let hourly_delay = calculate_hourly_refresh_delay(hourly_refresh_enabled);
+            let next_refresh_at =
+                calculate_next_refresh_at(enabled, interval_minutes, now_ms, hourly_delay);
 
             let _ = app.emit(
                 "usage-error",
@@ -134,10 +201,13 @@ pub async fn do_fetch_and_emit(
                 },
             );
 
-            if is_rate_limited {
-                FetchResult::RateLimited
-            } else {
-                FetchResult::OtherError
+            FetchOutput {
+                result: if is_rate_limited {
+                    FetchResult::RateLimited
+                } else {
+                    FetchResult::OtherError
+                },
+                next_refresh_at,
             }
         }
     }
@@ -163,14 +233,25 @@ pub async fn auto_refresh_loop(app: tauri::AppHandle, state: Arc<AppState>) {
             continue;
         }
 
-        // Fetch immediately
-        let result = do_fetch_and_emit(&app, &state, interval_minutes).await;
+        // Fetch immediately and get the next refresh timestamp
+        let fetch_output = do_fetch_and_emit(&app, &state, interval_minutes).await;
 
         // Update backoff based on result
-        backoff_secs = calculate_next_backoff(backoff_secs, result);
+        backoff_secs = calculate_next_backoff(backoff_secs, fetch_output.result);
 
-        // Determine wait duration
-        let wait_duration = calculate_wait_duration(backoff_secs, interval_minutes);
+        // Calculate wait duration based on the same next_refresh_at that was sent to frontend
+        let wait_duration = if backoff_secs > 0 {
+            // If in backoff, use backoff duration
+            std::time::Duration::from_secs(backoff_secs)
+        } else if let Some(next_at) = fetch_output.next_refresh_at {
+            // Use the same timestamp that was sent to frontend
+            let now = Utc::now().timestamp_millis();
+            let wait_ms = (next_at - now).max(0) as u64;
+            std::time::Duration::from_millis(wait_ms)
+        } else {
+            // Fallback to regular interval
+            std::time::Duration::from_secs(interval_minutes as u64 * 60)
+        };
 
         tokio::select! {
             _ = tokio::time::sleep(wait_duration) => {
@@ -325,32 +406,6 @@ mod tests {
         }
     }
 
-    mod calculate_wait_duration_tests {
-        use super::*;
-        use std::time::Duration;
-
-        #[test]
-        fn uses_backoff_when_active() {
-            assert_eq!(calculate_wait_duration(30, 5), Duration::from_secs(30));
-            assert_eq!(calculate_wait_duration(60, 5), Duration::from_secs(60));
-            assert_eq!(calculate_wait_duration(300, 5), Duration::from_secs(300));
-        }
-
-        #[test]
-        fn uses_interval_when_no_backoff() {
-            assert_eq!(calculate_wait_duration(0, 1), Duration::from_secs(60));
-            assert_eq!(calculate_wait_duration(0, 5), Duration::from_secs(300));
-            assert_eq!(calculate_wait_duration(0, 10), Duration::from_secs(600));
-            assert_eq!(calculate_wait_duration(0, 30), Duration::from_secs(1800));
-        }
-
-        #[test]
-        fn backoff_takes_precedence_over_interval() {
-            // Even with a long interval, backoff should be used
-            assert_eq!(calculate_wait_duration(30, 30), Duration::from_secs(30));
-        }
-    }
-
     mod should_refresh_tests {
         use super::*;
 
@@ -372,45 +427,119 @@ mod tests {
         }
     }
 
-    mod calculate_next_refresh_at_tests {
+    mod calculate_hourly_refresh_delay_tests {
         use super::*;
 
         #[test]
+        fn returns_none_when_disabled() {
+            assert!(calculate_hourly_refresh_delay_with_params(false, 0, 0).is_none());
+            assert!(calculate_hourly_refresh_delay_with_params(false, 1800, 30).is_none());
+        }
+
+        #[test]
+        fn calculates_delay_at_start_of_hour() {
+            // At 00:00 of the hour, with 0 jitter
+            let delay = calculate_hourly_refresh_delay_with_params(true, 0, 0).unwrap();
+            // Should be 3600 (full hour) + 5 (initial gap) = 3605 seconds
+            assert_eq!(delay, 3605);
+        }
+
+        #[test]
+        fn calculates_delay_at_middle_of_hour() {
+            // At 30:00 of the hour (1800 seconds in), with 0 jitter
+            let delay = calculate_hourly_refresh_delay_with_params(true, 1800, 0).unwrap();
+            // Should be 1800 (remaining) + 5 (initial gap) = 1805 seconds
+            assert_eq!(delay, 1805);
+        }
+
+        #[test]
+        fn calculates_delay_near_end_of_hour() {
+            // At 59:00 of the hour (3540 seconds in), with 0 jitter
+            let delay = calculate_hourly_refresh_delay_with_params(true, 3540, 0).unwrap();
+            // Should be 60 (remaining) + 5 (initial gap) = 65 seconds
+            assert_eq!(delay, 65);
+        }
+
+        #[test]
+        fn adds_jitter_to_delay() {
+            // At 30:00 of the hour, with 30 seconds jitter
+            let delay = calculate_hourly_refresh_delay_with_params(true, 1800, 30).unwrap();
+            // Should be 1800 (remaining) + 5 (initial gap) + 30 (jitter) = 1835 seconds
+            assert_eq!(delay, 1835);
+        }
+
+        #[test]
+        fn adds_max_jitter() {
+            // With maximum jitter (55 seconds)
+            let delay = calculate_hourly_refresh_delay_with_params(true, 0, 55).unwrap();
+            // Should be 3600 + 5 + 55 = 3660 seconds
+            assert_eq!(delay, 3660);
+        }
+    }
+
+    mod calculate_next_refresh_at_tests {
+        use super::*;
+
+        const NOW_MS: i64 = 1704067200000; // 2024-01-01 00:00:00 UTC
+
+        #[test]
         fn returns_some_when_enabled() {
-            let result = calculate_next_refresh_at(true, 5);
+            let result = calculate_next_refresh_at(true, 5, NOW_MS, None);
             assert!(result.is_some());
 
             let timestamp = result.unwrap();
-            let now = chrono::Utc::now().timestamp_millis();
-
-            // Should be approximately 5 minutes in the future (with some tolerance)
-            let expected_delta = 5 * 60 * 1000; // 5 minutes in ms
-            let actual_delta = timestamp - now;
-
-            // Allow 1 second tolerance for test execution time
-            assert!(
-                actual_delta >= expected_delta - 1000 && actual_delta <= expected_delta + 1000,
-                "Expected delta around {}ms, got {}ms",
-                expected_delta,
-                actual_delta
-            );
+            // Should be exactly 5 minutes in the future
+            let expected = NOW_MS + (5 * 60 * 1000);
+            assert_eq!(timestamp, expected);
         }
 
         #[test]
         fn returns_none_when_disabled() {
-            assert!(calculate_next_refresh_at(false, 5).is_none());
-            assert!(calculate_next_refresh_at(false, 10).is_none());
+            assert!(calculate_next_refresh_at(false, 5, NOW_MS, None).is_none());
+            assert!(calculate_next_refresh_at(false, 10, NOW_MS, None).is_none());
         }
 
         #[test]
         fn different_intervals_produce_different_timestamps() {
-            let result_1min = calculate_next_refresh_at(true, 1).unwrap();
-            let result_5min = calculate_next_refresh_at(true, 5).unwrap();
-            let result_10min = calculate_next_refresh_at(true, 10).unwrap();
+            let result_1min = calculate_next_refresh_at(true, 1, NOW_MS, None).unwrap();
+            let result_5min = calculate_next_refresh_at(true, 5, NOW_MS, None).unwrap();
+            let result_10min = calculate_next_refresh_at(true, 10, NOW_MS, None).unwrap();
+
+            assert_eq!(result_1min, NOW_MS + 60_000);
+            assert_eq!(result_5min, NOW_MS + 300_000);
+            assert_eq!(result_10min, NOW_MS + 600_000);
 
             // Larger intervals should produce later timestamps
             assert!(result_5min > result_1min);
             assert!(result_10min > result_5min);
+        }
+
+        #[test]
+        fn uses_hourly_delay_when_sooner() {
+            // Regular interval is 30 minutes (1800 seconds)
+            // Hourly delay is 10 minutes (600 seconds) - sooner
+            let hourly_delay = Some(600u64);
+            let result = calculate_next_refresh_at(true, 30, NOW_MS, hourly_delay).unwrap();
+
+            // Should use the hourly delay since it's sooner
+            assert_eq!(result, NOW_MS + 600_000);
+        }
+
+        #[test]
+        fn uses_regular_interval_when_sooner() {
+            // Regular interval is 5 minutes (300 seconds)
+            // Hourly delay is 50 minutes (3000 seconds) - later
+            let hourly_delay = Some(3000u64);
+            let result = calculate_next_refresh_at(true, 5, NOW_MS, hourly_delay).unwrap();
+
+            // Should use the regular interval since it's sooner
+            assert_eq!(result, NOW_MS + 300_000);
+        }
+
+        #[test]
+        fn ignores_hourly_delay_when_none() {
+            let result = calculate_next_refresh_at(true, 5, NOW_MS, None).unwrap();
+            assert_eq!(result, NOW_MS + 300_000);
         }
     }
 
@@ -420,27 +549,26 @@ mod tests {
         #[test]
         fn full_backoff_recovery_cycle() {
             let mut backoff = 0u64;
-            let interval = 5u32;
 
             // Normal operation - no backoff
-            assert_eq!(calculate_wait_duration(backoff, interval).as_secs(), 300);
+            assert_eq!(backoff, 0);
             assert!(should_refresh(true, true));
 
             // First rate limit
             backoff = calculate_next_backoff(backoff, FetchResult::RateLimited);
-            assert_eq!(calculate_wait_duration(backoff, interval).as_secs(), 30);
+            assert_eq!(backoff, 30);
 
             // Second rate limit
             backoff = calculate_next_backoff(backoff, FetchResult::RateLimited);
-            assert_eq!(calculate_wait_duration(backoff, interval).as_secs(), 60);
+            assert_eq!(backoff, 60);
 
             // Other error doesn't change backoff
             backoff = calculate_next_backoff(backoff, FetchResult::OtherError);
-            assert_eq!(calculate_wait_duration(backoff, interval).as_secs(), 60);
+            assert_eq!(backoff, 60);
 
             // Success resets backoff
             backoff = calculate_next_backoff(backoff, FetchResult::Success);
-            assert_eq!(calculate_wait_duration(backoff, interval).as_secs(), 300);
+            assert_eq!(backoff, 0);
         }
 
         #[test]
@@ -449,7 +577,8 @@ mod tests {
             assert!(!should_refresh(false, true));
 
             // Next refresh should be None
-            assert!(calculate_next_refresh_at(false, 5).is_none());
+            let now_ms = 1704067200000i64;
+            assert!(calculate_next_refresh_at(false, 5, now_ms, None).is_none());
         }
 
         #[test]
@@ -458,7 +587,8 @@ mod tests {
             assert!(!should_refresh(true, false));
 
             // But next refresh timestamp is still calculated (frontend handles display)
-            assert!(calculate_next_refresh_at(true, 5).is_some());
+            let now_ms = 1704067200000i64;
+            assert!(calculate_next_refresh_at(true, 5, now_ms, None).is_some());
         }
     }
 }

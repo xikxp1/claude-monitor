@@ -111,6 +111,7 @@ pub struct AutoRefreshConfig {
     pub session_token: Option<String>,
     pub enabled: bool,
     pub interval_minutes: u32,
+    pub hourly_refresh_enabled: bool,
 }
 
 impl Default for AutoRefreshConfig {
@@ -120,6 +121,7 @@ impl Default for AutoRefreshConfig {
             session_token: None,
             enabled: true,
             interval_minutes: 5,
+            hourly_refresh_enabled: false,
         }
     }
 }
