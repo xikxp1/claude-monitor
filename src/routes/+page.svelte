@@ -331,6 +331,20 @@
               <input
                 type="checkbox"
                 class="checkbox checkbox-primary checkbox-sm"
+                checked={settings.hourlyRefreshEnabled}
+                onchange={(e) =>
+                  settings.toggleHourlyRefresh(e.currentTarget.checked)}
+              />
+              <div class="flex flex-col">
+                <span class="font-medium">Refresh on limit reset</span>
+                <span class="text-xs text-base-content/60">Auto-refresh when hourly limits reset</span>
+              </div>
+            </label>
+
+            <label class="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                class="checkbox checkbox-primary checkbox-sm"
                 checked={settings.autostartEnabled}
                 onchange={(e) =>
                   settings.toggleAutostart(e.currentTarget.checked)}

@@ -39,6 +39,7 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
   // General settings
   let refreshIntervalMinutes = $state(5);
   let autoRefreshEnabled = $state(true);
+  let hourlyRefreshEnabled = $state(false);
   let autostartEnabled = $state(false);
   let dataRetentionDays = $state(30);
 
@@ -72,9 +73,11 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     // Load general settings from store
     const savedInterval = await store.get<number>("refresh_interval_minutes");
     const savedAutoRefresh = await store.get<boolean>("auto_refresh_enabled");
+    const savedHourlyRefresh = await store.get<boolean>("hourly_refresh_enabled");
 
     refreshIntervalMinutes = savedInterval ?? 5;
     autoRefreshEnabled = savedAutoRefresh ?? true;
+    hourlyRefreshEnabled = savedHourlyRefresh ?? false;
 
     // Load notification settings
     const savedNotificationSettings = await store.get<NotificationSettings>(
@@ -114,6 +117,13 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
       await commands.setAutoRefresh(autoRefreshEnabled, refreshIntervalMinutes);
     } catch (e) {
       console.error("Failed to set auto-refresh settings:", e);
+    }
+
+    // Send hourly refresh setting to backend
+    try {
+      await commands.setHourlyRefresh(hourlyRefreshEnabled);
+    } catch (e) {
+      console.error("Failed to set hourly refresh setting:", e);
     }
   }
 
@@ -225,6 +235,21 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
   }
 
   /**
+   * Toggle hourly refresh (not debounced - discrete action)
+   */
+  async function toggleHourlyRefresh(enabled: boolean) {
+    try {
+      hourlyRefreshEnabled = enabled;
+      await store.set("hourly_refresh_enabled", enabled);
+      await commands.setHourlyRefresh(enabled);
+      onSuccess?.(enabled ? "Hourly refresh enabled" : "Hourly refresh disabled");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to save hourly refresh setting";
+      onError?.(msg);
+    }
+  }
+
+  /**
    * Internal: persist retention setting (debounced)
    */
   async function persistRetention(days: number) {
@@ -282,6 +307,7 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     // Reset state variables
     refreshIntervalMinutes = 5;
     autoRefreshEnabled = true;
+    hourlyRefreshEnabled = false;
     dataRetentionDays = 30;
     isConfigured = false;
     orgIdInput = "";
@@ -362,6 +388,9 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     get autoRefreshEnabled() {
       return autoRefreshEnabled;
     },
+    get hourlyRefreshEnabled() {
+      return hourlyRefreshEnabled;
+    },
     get autostartEnabled() {
       return autostartEnabled;
     },
@@ -397,6 +426,7 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     saveNotifications,
     saveGeneral,
     toggleAutostart,
+    toggleHourlyRefresh,
     saveRetention,
     logout,
     resetAll,

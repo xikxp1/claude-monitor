@@ -90,6 +90,22 @@ pub async fn set_auto_refresh(
     Ok(())
 }
 
+/// Update hourly refresh setting and restart loop
+#[tauri::command]
+#[specta::specta]
+pub async fn set_hourly_refresh(
+    state: tauri::State<'_, Arc<AppState>>,
+    enabled: bool,
+) -> Result<(), ()> {
+    let mut config = state.config.lock().await;
+    config.hourly_refresh_enabled = enabled;
+    drop(config);
+
+    // Signal the loop to restart so it picks up the new setting
+    let _ = state.restart_tx.send(());
+    Ok(())
+}
+
 /// Trigger immediate refresh
 #[tauri::command]
 #[specta::specta]
@@ -167,6 +183,7 @@ mod tests {
                 session_token: Some(token.to_string()),
                 enabled: true,
                 interval_minutes: 5,
+                hourly_refresh_enabled: false,
             }),
             restart_tx,
             notification_settings: tokio::sync::Mutex::new(NotificationSettings::default()),
@@ -206,6 +223,7 @@ mod tests {
                     session_token: None,
                     enabled: true,
                     interval_minutes: 5,
+                    hourly_refresh_enabled: false,
                 }),
                 restart_tx,
                 notification_settings: tokio::sync::Mutex::new(NotificationSettings::default()),
@@ -225,6 +243,7 @@ mod tests {
                     session_token: Some("test-token".to_string()),
                     enabled: true,
                     interval_minutes: 5,
+                    hourly_refresh_enabled: false,
                 }),
                 restart_tx,
                 notification_settings: tokio::sync::Mutex::new(NotificationSettings::default()),
@@ -488,6 +507,7 @@ mod tests {
                     session_token: Some("test-token".to_string()),
                     enabled: true,
                     interval_minutes: 5,
+                    hourly_refresh_enabled: false,
                 }),
                 restart_tx,
                 notification_settings: tokio::sync::Mutex::new(NotificationSettings::default()),
@@ -636,6 +656,7 @@ mod tests {
             assert!(config.session_token.is_none());
             assert!(config.enabled);
             assert_eq!(config.interval_minutes, 5);
+            assert!(!config.hourly_refresh_enabled);
         }
     }
 

@@ -61,6 +61,17 @@ async setAutoRefresh(enabled: boolean, intervalMinutes: number) : Promise<Result
 }
 },
 /**
+ * Update hourly refresh setting and restart loop
+ */
+async setHourlyRefresh(enabled: boolean) : Promise<Result<null, null>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_hourly_refresh", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Trigger immediate refresh
  */
 async refreshNow() : Promise<Result<null, null>> {

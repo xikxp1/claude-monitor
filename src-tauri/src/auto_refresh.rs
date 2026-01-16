@@ -4,6 +4,8 @@ use crate::history::save_usage_snapshot;
 use crate::notifications::{process_notifications, reset_notification_state_if_needed};
 use crate::tray::update_tray_tooltip;
 use crate::types::{AppState, UsageErrorEvent, UsageUpdateEvent};
+use chrono::{Timelike, Utc};
+use rand::Rng;
 use std::sync::Arc;
 use tauri::Emitter;
 
@@ -20,6 +22,10 @@ pub enum FetchResult {
 pub const INITIAL_BACKOFF_SECS: u64 = 30; // Start with 30 seconds
 pub const MAX_BACKOFF_SECS: u64 = 300; // Cap at 5 minutes
 pub const BACKOFF_MULTIPLIER: u64 = 2; // Double each time
+
+/// Hourly refresh configuration
+pub const HOURLY_REFRESH_INITIAL_GAP_SECS: u64 = 5; // Wait 5 seconds after hour starts
+pub const HOURLY_REFRESH_JITTER_MAX_SECS: u64 = 55; // Add up to 55 seconds of jitter
 
 /// Calculate the next backoff duration based on the current backoff and fetch result.
 /// Returns the new backoff value in seconds (0 means no backoff active).
@@ -59,12 +65,44 @@ pub fn should_refresh(enabled: bool, has_credentials: bool) -> bool {
     enabled && has_credentials
 }
 
+/// Calculate seconds until the next hour starts, plus initial gap and jitter.
+/// Returns None if hourly refresh is disabled.
+pub fn calculate_hourly_refresh_delay(hourly_refresh_enabled: bool) -> Option<u64> {
+    if !hourly_refresh_enabled {
+        return None;
+    }
+
+    let now = Utc::now();
+    let seconds_into_hour = now.minute() as u64 * 60 + now.second() as u64;
+    let seconds_until_next_hour = 3600 - seconds_into_hour;
+
+    // Add initial gap and random jitter
+    let jitter = rand::rng().random_range(0..=HOURLY_REFRESH_JITTER_MAX_SECS);
+    let total_delay = seconds_until_next_hour + HOURLY_REFRESH_INITIAL_GAP_SECS + jitter;
+
+    Some(total_delay)
+}
+
 /// Calculate the next refresh timestamp in milliseconds.
-pub fn calculate_next_refresh_at(enabled: bool, interval_minutes: u32) -> Option<i64> {
-    if enabled {
-        Some(chrono::Utc::now().timestamp_millis() + (interval_minutes as i64 * 60 * 1000))
+/// Takes into account both regular interval and hourly refresh (whichever is sooner).
+pub fn calculate_next_refresh_at(
+    enabled: bool,
+    interval_minutes: u32,
+    hourly_refresh_enabled: bool,
+) -> Option<i64> {
+    if !enabled {
+        return None;
+    }
+
+    let now = Utc::now().timestamp_millis();
+    let regular_next = now + (interval_minutes as i64 * 60 * 1000);
+
+    // If hourly refresh is enabled, use whichever is sooner
+    if let Some(hourly_delay_secs) = calculate_hourly_refresh_delay(hourly_refresh_enabled) {
+        let hourly_next = now + (hourly_delay_secs as i64 * 1000);
+        Some(regular_next.min(hourly_next))
     } else {
-        None
+        Some(regular_next)
     }
 }
 
@@ -77,6 +115,7 @@ pub async fn do_fetch_and_emit(
     let org_id = config.organization_id.clone();
     let session_token = config.session_token.clone();
     let enabled = config.enabled;
+    let hourly_refresh_enabled = config.hourly_refresh_enabled;
     drop(config);
 
     let (Some(org_id), Some(session_token)) = (org_id, session_token) else {
@@ -110,8 +149,9 @@ pub async fn do_fetch_and_emit(
                 *notification_state = new_state;
             }
 
-            // Calculate next refresh time
-            let next_refresh_at = calculate_next_refresh_at(enabled, interval_minutes);
+            // Calculate next refresh time (considers both regular interval and hourly refresh)
+            let next_refresh_at =
+                calculate_next_refresh_at(enabled, interval_minutes, hourly_refresh_enabled);
 
             // Emit usage update event
             let _ = app.emit(
@@ -152,6 +192,7 @@ pub async fn auto_refresh_loop(app: tauri::AppHandle, state: Arc<AppState>) {
         let config = state.config.lock().await;
         let enabled = config.enabled;
         let interval_minutes = config.interval_minutes;
+        let hourly_refresh_enabled = config.hourly_refresh_enabled;
         let has_credentials = config.organization_id.is_some() && config.session_token.is_some();
         drop(config);
 
@@ -169,8 +210,22 @@ pub async fn auto_refresh_loop(app: tauri::AppHandle, state: Arc<AppState>) {
         // Update backoff based on result
         backoff_secs = calculate_next_backoff(backoff_secs, result);
 
-        // Determine wait duration
-        let wait_duration = calculate_wait_duration(backoff_secs, interval_minutes);
+        // Determine wait duration (regular interval or backoff)
+        let regular_wait = calculate_wait_duration(backoff_secs, interval_minutes);
+
+        // Check if hourly refresh should happen sooner
+        let wait_duration = if let Some(hourly_delay) = calculate_hourly_refresh_delay(hourly_refresh_enabled) {
+            let hourly_wait = std::time::Duration::from_secs(hourly_delay);
+            // Use whichever is shorter (but respect backoff)
+            if backoff_secs > 0 {
+                // If in backoff, use backoff duration
+                regular_wait
+            } else {
+                regular_wait.min(hourly_wait)
+            }
+        } else {
+            regular_wait
+        };
 
         tokio::select! {
             _ = tokio::time::sleep(wait_duration) => {
@@ -377,7 +432,7 @@ mod tests {
 
         #[test]
         fn returns_some_when_enabled() {
-            let result = calculate_next_refresh_at(true, 5);
+            let result = calculate_next_refresh_at(true, 5, false);
             assert!(result.is_some());
 
             let timestamp = result.unwrap();
@@ -398,19 +453,31 @@ mod tests {
 
         #[test]
         fn returns_none_when_disabled() {
-            assert!(calculate_next_refresh_at(false, 5).is_none());
-            assert!(calculate_next_refresh_at(false, 10).is_none());
+            assert!(calculate_next_refresh_at(false, 5, false).is_none());
+            assert!(calculate_next_refresh_at(false, 10, false).is_none());
         }
 
         #[test]
         fn different_intervals_produce_different_timestamps() {
-            let result_1min = calculate_next_refresh_at(true, 1).unwrap();
-            let result_5min = calculate_next_refresh_at(true, 5).unwrap();
-            let result_10min = calculate_next_refresh_at(true, 10).unwrap();
+            let result_1min = calculate_next_refresh_at(true, 1, false).unwrap();
+            let result_5min = calculate_next_refresh_at(true, 5, false).unwrap();
+            let result_10min = calculate_next_refresh_at(true, 10, false).unwrap();
 
             // Larger intervals should produce later timestamps
             assert!(result_5min > result_1min);
             assert!(result_10min > result_5min);
+        }
+
+        #[test]
+        fn hourly_refresh_returns_sooner_timestamp_when_hour_is_close() {
+            // When hourly refresh is enabled and next hour is sooner than interval,
+            // the function should return the hourly refresh time
+            let result_without_hourly = calculate_next_refresh_at(true, 30, false).unwrap();
+            let result_with_hourly = calculate_next_refresh_at(true, 30, true).unwrap();
+
+            // With hourly enabled, the result should be <= the regular interval
+            // (could be equal if we're right after an hour boundary)
+            assert!(result_with_hourly <= result_without_hourly);
         }
     }
 
@@ -449,7 +516,7 @@ mod tests {
             assert!(!should_refresh(false, true));
 
             // Next refresh should be None
-            assert!(calculate_next_refresh_at(false, 5).is_none());
+            assert!(calculate_next_refresh_at(false, 5, false).is_none());
         }
 
         #[test]
@@ -458,7 +525,7 @@ mod tests {
             assert!(!should_refresh(true, false));
 
             // But next refresh timestamp is still calculated (frontend handles display)
-            assert!(calculate_next_refresh_at(true, 5).is_some());
+            assert!(calculate_next_refresh_at(true, 5, false).is_some());
         }
     }
 }
