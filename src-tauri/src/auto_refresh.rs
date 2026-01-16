@@ -50,16 +50,6 @@ pub fn calculate_next_backoff(current_backoff: u64, result: FetchResult) -> u64 
     }
 }
 
-/// Calculate the wait duration based on backoff and interval settings.
-/// If backoff is active (> 0), use backoff duration; otherwise use normal interval.
-pub fn calculate_wait_duration(backoff_secs: u64, interval_minutes: u32) -> std::time::Duration {
-    if backoff_secs > 0 {
-        std::time::Duration::from_secs(backoff_secs)
-    } else {
-        std::time::Duration::from_secs(interval_minutes as u64 * 60)
-    }
-}
-
 /// Check if the auto-refresh loop should be active based on config.
 pub fn should_refresh(enabled: bool, has_credentials: bool) -> bool {
     enabled && has_credentials
@@ -106,11 +96,17 @@ pub fn calculate_next_refresh_at(
     }
 }
 
+/// Result of a fetch operation, including the next refresh timestamp
+pub struct FetchOutput {
+    pub result: FetchResult,
+    pub next_refresh_at: Option<i64>,
+}
+
 pub async fn do_fetch_and_emit(
     app: &tauri::AppHandle,
     state: &AppState,
     interval_minutes: u32,
-) -> FetchResult {
+) -> FetchOutput {
     let config = state.config.lock().await;
     let org_id = config.organization_id.clone();
     let session_token = config.session_token.clone();
@@ -119,7 +115,10 @@ pub async fn do_fetch_and_emit(
     drop(config);
 
     let (Some(org_id), Some(session_token)) = (org_id, session_token) else {
-        return FetchResult::NoCredentials;
+        return FetchOutput {
+            result: FetchResult::NoCredentials,
+            next_refresh_at: None,
+        };
     };
 
     match fetch_usage_from_api(&org_id, &session_token).await {
@@ -162,10 +161,17 @@ pub async fn do_fetch_and_emit(
                 },
             );
 
-            FetchResult::Success
+            FetchOutput {
+                result: FetchResult::Success,
+                next_refresh_at,
+            }
         }
         Err(e) => {
             let is_rate_limited = matches!(e, AppError::RateLimited);
+
+            // Calculate next refresh time even on error (for retry countdown)
+            let next_refresh_at =
+                calculate_next_refresh_at(enabled, interval_minutes, hourly_refresh_enabled);
 
             let _ = app.emit(
                 "usage-error",
@@ -174,10 +180,13 @@ pub async fn do_fetch_and_emit(
                 },
             );
 
-            if is_rate_limited {
-                FetchResult::RateLimited
-            } else {
-                FetchResult::OtherError
+            FetchOutput {
+                result: if is_rate_limited {
+                    FetchResult::RateLimited
+                } else {
+                    FetchResult::OtherError
+                },
+                next_refresh_at,
             }
         }
     }
@@ -192,7 +201,6 @@ pub async fn auto_refresh_loop(app: tauri::AppHandle, state: Arc<AppState>) {
         let config = state.config.lock().await;
         let enabled = config.enabled;
         let interval_minutes = config.interval_minutes;
-        let hourly_refresh_enabled = config.hourly_refresh_enabled;
         let has_credentials = config.organization_id.is_some() && config.session_token.is_some();
         drop(config);
 
@@ -204,27 +212,24 @@ pub async fn auto_refresh_loop(app: tauri::AppHandle, state: Arc<AppState>) {
             continue;
         }
 
-        // Fetch immediately
-        let result = do_fetch_and_emit(&app, &state, interval_minutes).await;
+        // Fetch immediately and get the next refresh timestamp
+        let fetch_output = do_fetch_and_emit(&app, &state, interval_minutes).await;
 
         // Update backoff based on result
-        backoff_secs = calculate_next_backoff(backoff_secs, result);
+        backoff_secs = calculate_next_backoff(backoff_secs, fetch_output.result);
 
-        // Determine wait duration (regular interval or backoff)
-        let regular_wait = calculate_wait_duration(backoff_secs, interval_minutes);
-
-        // Check if hourly refresh should happen sooner
-        let wait_duration = if let Some(hourly_delay) = calculate_hourly_refresh_delay(hourly_refresh_enabled) {
-            let hourly_wait = std::time::Duration::from_secs(hourly_delay);
-            // Use whichever is shorter (but respect backoff)
-            if backoff_secs > 0 {
-                // If in backoff, use backoff duration
-                regular_wait
-            } else {
-                regular_wait.min(hourly_wait)
-            }
+        // Calculate wait duration based on the same next_refresh_at that was sent to frontend
+        let wait_duration = if backoff_secs > 0 {
+            // If in backoff, use backoff duration
+            std::time::Duration::from_secs(backoff_secs)
+        } else if let Some(next_at) = fetch_output.next_refresh_at {
+            // Use the same timestamp that was sent to frontend
+            let now = Utc::now().timestamp_millis();
+            let wait_ms = (next_at - now).max(0) as u64;
+            std::time::Duration::from_millis(wait_ms)
         } else {
-            regular_wait
+            // Fallback to regular interval
+            std::time::Duration::from_secs(interval_minutes as u64 * 60)
         };
 
         tokio::select! {
@@ -380,32 +385,6 @@ mod tests {
         }
     }
 
-    mod calculate_wait_duration_tests {
-        use super::*;
-        use std::time::Duration;
-
-        #[test]
-        fn uses_backoff_when_active() {
-            assert_eq!(calculate_wait_duration(30, 5), Duration::from_secs(30));
-            assert_eq!(calculate_wait_duration(60, 5), Duration::from_secs(60));
-            assert_eq!(calculate_wait_duration(300, 5), Duration::from_secs(300));
-        }
-
-        #[test]
-        fn uses_interval_when_no_backoff() {
-            assert_eq!(calculate_wait_duration(0, 1), Duration::from_secs(60));
-            assert_eq!(calculate_wait_duration(0, 5), Duration::from_secs(300));
-            assert_eq!(calculate_wait_duration(0, 10), Duration::from_secs(600));
-            assert_eq!(calculate_wait_duration(0, 30), Duration::from_secs(1800));
-        }
-
-        #[test]
-        fn backoff_takes_precedence_over_interval() {
-            // Even with a long interval, backoff should be used
-            assert_eq!(calculate_wait_duration(30, 30), Duration::from_secs(30));
-        }
-    }
-
     mod should_refresh_tests {
         use super::*;
 
@@ -487,27 +466,26 @@ mod tests {
         #[test]
         fn full_backoff_recovery_cycle() {
             let mut backoff = 0u64;
-            let interval = 5u32;
 
             // Normal operation - no backoff
-            assert_eq!(calculate_wait_duration(backoff, interval).as_secs(), 300);
+            assert_eq!(backoff, 0);
             assert!(should_refresh(true, true));
 
             // First rate limit
             backoff = calculate_next_backoff(backoff, FetchResult::RateLimited);
-            assert_eq!(calculate_wait_duration(backoff, interval).as_secs(), 30);
+            assert_eq!(backoff, 30);
 
             // Second rate limit
             backoff = calculate_next_backoff(backoff, FetchResult::RateLimited);
-            assert_eq!(calculate_wait_duration(backoff, interval).as_secs(), 60);
+            assert_eq!(backoff, 60);
 
             // Other error doesn't change backoff
             backoff = calculate_next_backoff(backoff, FetchResult::OtherError);
-            assert_eq!(calculate_wait_duration(backoff, interval).as_secs(), 60);
+            assert_eq!(backoff, 60);
 
             // Success resets backoff
             backoff = calculate_next_backoff(backoff, FetchResult::Success);
-            assert_eq!(calculate_wait_duration(backoff, interval).as_secs(), 300);
+            assert_eq!(backoff, 0);
         }
 
         #[test]

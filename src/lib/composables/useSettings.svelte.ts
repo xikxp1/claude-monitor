@@ -322,6 +322,9 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     // Reset auto-refresh settings to backend
     await commands.setAutoRefresh(true, 5);
 
+    // Reset hourly refresh setting to backend
+    await commands.setHourlyRefresh(false);
+
     onSuccess?.("All settings reset");
   }
 
