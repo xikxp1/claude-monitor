@@ -1,6 +1,6 @@
 [package]
 name = "claude-monitor"
-version = "0.1.1"
+version = "0.1.2"
 description = "Desktop app to monitor Claude API usage"
 authors = ["you"]
 edition = "2021"
@@ -41,7 +41,7 @@ log = "0.4.29"
 
 # macOS-only: NSPopover for native popover behavior
 [target.'cfg(target_os = "macos")'.dependencies]
-tauri-plugin-nspopover = { git = "https://github.com/xikxp1/tauri-nspopover-plugin.git", branch = "fix_nsview_stale_refs" }
+tauri-plugin-nspopover = { git = "https://github.com/freethinkel/tauri-nspopover-plugin.git", version = "4.0.0" }
 
 # Windows/Linux only: Positioner for tray-relative window positioning
 [target.'cfg(not(target_os = "macos"))'.dependencies]
