@@ -155,7 +155,7 @@
         <span class="text-neutral font-normal">Monitor</span>
       </h1>
       {#if settings.isConfigured}
-        <div class="flex gap-1.5 mr-1">
+        <div class="flex gap-1.5 mr-2">
           <button
             class="btn btn-sm {analytics.showAnalytics ? 'btn-primary' : 'btn-soft'}"
             onclick={() => {
@@ -494,7 +494,7 @@
       <section class="flex-1 overflow-y-auto flex flex-col gap-4 px-2">
         <h2 class="text-lg font-semibold">Usage Analytics</h2>
 
-        <div class="flex justify-between items-center gap-3">
+        <div class="flex justify-between items-center gap-1">
           <div class="join">
             <button
               class="join-item btn btn-sm {analytics.timeRange === '1h' ? 'btn-primary' : 'btn-ghost'}"
@@ -518,20 +518,20 @@
             >
           </div>
 
-          <div class="flex gap-3 mr-3">
-            <label class="flex items-center gap-1 cursor-pointer text-xs">
+          <div class="flex gap-1 mr-1">
+            <label class="flex items-center gap-0.5 cursor-pointer text-xs">
               <input type="checkbox" class="checkbox checkbox-xs" style="--chkbg: #3b82f6; --chkfg: white;" bind:checked={analytics.showFiveHour} />
               <span class="text-info font-medium">5h</span>
             </label>
-            <label class="flex items-center gap-1 cursor-pointer text-xs">
+            <label class="flex items-center gap-0.5 cursor-pointer text-xs">
               <input type="checkbox" class="checkbox checkbox-xs" style="--chkbg: #8b5cf6; --chkfg: white;" bind:checked={analytics.showSevenDay} />
               <span class="text-[#8b5cf6] font-medium">7d</span>
             </label>
-            <label class="flex items-center gap-1 cursor-pointer text-xs">
+            <label class="flex items-center gap-0.5 cursor-pointer text-xs">
               <input type="checkbox" class="checkbox checkbox-xs" style="--chkbg: #22c55e; --chkfg: white;" bind:checked={analytics.showSonnet} />
               <span class="text-success font-medium">Sonnet</span>
             </label>
-            <label class="flex items-center gap-1 cursor-pointer text-xs">
+            <label class="flex items-center gap-0.5 cursor-pointer text-xs">
               <input type="checkbox" class="checkbox checkbox-xs" style="--chkbg: #f59e0b; --chkfg: white;" bind:checked={analytics.showOpus} />
               <span class="text-[#f59e0b] font-medium">Opus</span>
             </label>
