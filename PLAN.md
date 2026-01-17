@@ -381,6 +381,14 @@ Critical issues to fix before the first public release.
   - Conditional plugin initialization via `#[cfg(target_os = "...")]`
   - Reduces binary size by not including unused platform code
 
+#### System Integration
+- [x] Cross-platform wake detection: Auto-refresh on system wake from sleep
+  - macOS: `NSWorkspaceDidWakeNotification` via `objc2`
+  - Windows: `WM_POWERBROADCAST` via `windows` crate
+  - Linux: D-Bus `org.freedesktop.login1.PrepareForSleep` via `zbus`
+  - Triggers immediate refresh when system wakes
+  - Ensures data is current after sleep/wake cycles
+
 #### Distribution
 - [x] App icon design (all sizes)
 - [x] GitHub releases:

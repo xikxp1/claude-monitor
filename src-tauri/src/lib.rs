@@ -8,6 +8,7 @@ mod notifications;
 mod tray;
 mod types;
 mod validation;
+mod wake_detection;
 
 use auto_refresh::auto_refresh_loop;
 use commands::{
@@ -161,7 +162,11 @@ pub fn run() {
 
             // Spawn auto-refresh loop
             let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(auto_refresh_loop(app_handle, state));
+            tauri::async_runtime::spawn(auto_refresh_loop(app_handle, state.clone()));
+
+            // Start wake detection listener (macOS only)
+            // This triggers a refresh when the system wakes from sleep
+            wake_detection::start_wake_listener(state.restart_tx.clone());
 
             // Create tray (required by NSPopover plugin which looks up tray by ID "main")
             create_tray(app.handle())?;
