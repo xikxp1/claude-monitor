@@ -20,7 +20,7 @@ export function formatResetTime(resets_at: string): string {
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
 
-    if (diffHours > 24) {
+    if (diffHours >= 24) {
       const days = Math.floor(diffHours / 24);
       return `${days}d ${diffHours % 24}h`;
     }
