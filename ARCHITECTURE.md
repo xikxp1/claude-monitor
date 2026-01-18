@@ -72,7 +72,8 @@ claude-monitor/
 │   │   ├── notifications.rs                  # Notification processing and firing
 │   │   ├── tray.rs                           # System tray creation and tooltip
 │   │   ├── types.rs                          # Data structures
-│   │   └── validation.rs                     # Input validation
+│   │   ├── validation.rs                     # Input validation
+│   │   └── wake_detection.rs                 # macOS system wake detection
 │   ├── capabilities/
 │   │   └── default.json                      # Permissions
 │   ├── icons/
@@ -98,6 +99,7 @@ The Rust backend (`src-tauri/src/`) is organized into focused modules:
 - `tray.rs` - System tray creation and tooltip updates
 - `auto_refresh.rs` - Background refresh loop with tokio (includes notification processing)
 - `commands.rs` - Tauri command handlers
+- `wake_detection.rs` - macOS system wake detection (triggers refresh on wake)
 - `lib.rs` - Module declarations, plugin setup, and app entry point
 
 ## Backend Auto-Refresh Architecture
@@ -159,6 +161,25 @@ The Claude usage API returns:
 ## Platform-Specific Behavior
 - **All platforms**: Uses positioner plugin for tray-relative window positioning, auto-hides on focus loss, always-on-top window
 - **macOS**: Sets activation policy to Accessory for proper tray app behavior (no dock icon)
+
+## System Wake Detection (Cross-Platform)
+The app automatically refreshes usage data when the system wakes from sleep on all platforms.
+
+**Implementation** (`wake_detection.rs`):
+
+| Platform | Mechanism | Crate |
+|----------|-----------|-------|
+| macOS | `NSWorkspaceDidWakeNotification` | `objc2`, `objc2-app-kit` |
+| Windows | `WM_POWERBROADCAST` with `PBT_APMRESUMEAUTOMATIC`/`PBT_APMRESUMESUSPEND` | `windows` |
+| Linux | D-Bus `org.freedesktop.login1.PrepareForSleep` signal | `zbus` |
+
+**How it works:**
+1. Platform-specific listener is started during app setup
+2. When system wakes, the OS notification fires
+3. Listener sends signal via `watch::Sender` to restart channel
+4. Auto-refresh loop receives signal and immediately fetches fresh data
+
+This ensures usage data is current after sleep/wake cycles without waiting for the next scheduled refresh.
 
 ## OS Keychain Secure Storage (Rust Backend)
 - Uses `keyring` crate for cross-platform secure credential storage:
