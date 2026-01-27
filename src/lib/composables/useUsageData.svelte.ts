@@ -130,7 +130,8 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
       await commands.refreshNow();
     } catch (e) {
       console.error("Failed to trigger refresh:", e);
-      callbacks.setError(e instanceof Error ? e.message : "Failed to refresh");
+      const errorMsg = e instanceof Error ? e.message : "Failed to refresh";
+      callbacks.setError(errorMsg);
       callbacks.setLoading(false);
     }
   }
