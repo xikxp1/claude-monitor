@@ -72,7 +72,8 @@ claude-monitor/
 │   │   ├── notifications.rs                  # Notification processing and firing
 │   │   ├── tray.rs                           # System tray creation and tooltip
 │   │   ├── types.rs                          # Data structures
-│   │   └── validation.rs                     # Input validation
+│   │   ├── validation.rs                     # Input validation
+│   │   └── wake_detection.rs                 # macOS wake detection (objc2)
 │   ├── capabilities/
 │   │   └── default.json                      # Permissions
 │   ├── icons/
@@ -98,6 +99,7 @@ The Rust backend (`src-tauri/src/`) is organized into focused modules:
 - `tray.rs` - System tray creation and tooltip updates
 - `auto_refresh.rs` - Background refresh loop with tokio (includes notification processing)
 - `commands.rs` - Tauri command handlers
+- `wake_detection.rs` - macOS wake detection via `objc2` (triggers refresh on system wake)
 - `lib.rs` - Module declarations, plugin setup, and app entry point
 
 ## Backend Auto-Refresh Architecture
@@ -159,6 +161,19 @@ The Claude usage API returns:
 ## Platform-Specific Behavior
 - **All platforms**: Uses positioner plugin for tray-relative window positioning, auto-hides on focus loss, always-on-top window
 - **macOS**: Sets activation policy to Accessory for proper tray app behavior (no dock icon)
+- **macOS**: Wake detection triggers immediate usage refresh
+
+## Wake Detection (macOS)
+The app automatically refreshes usage data when the system wakes from sleep:
+
+- **Implementation**: Uses modern `objc2` crates (not deprecated `objc`)
+  - `objc2` for Objective-C runtime interop
+  - `objc2-foundation` for NSNotification and NSObject
+  - `objc2-app-kit` for NSWorkspace and notification constants
+- **Observer Pattern**: Creates a `WakeObserver` class using `define_class!` macro that subscribes to `NSWorkspaceDidWakeNotification`
+- **Integration**: When wake is detected, signals the existing `restart_tx` channel, which triggers the auto-refresh loop to fetch immediately
+- **Lifecycle**: Observer is stored in `AppState` to keep it alive and properly unregistered on drop
+- **Conditional Compilation**: Module is only compiled for macOS (`#[cfg(target_os = "macos")]`)
 
 ## OS Keychain Secure Storage (Rust Backend)
 - Uses `keyring` crate for cross-platform secure credential storage:

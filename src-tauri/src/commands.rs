@@ -171,6 +171,8 @@ mod tests {
             restart_tx,
             notification_settings: tokio::sync::Mutex::new(NotificationSettings::default()),
             notification_state: tokio::sync::Mutex::new(NotificationState::default()),
+            #[cfg(target_os = "macos")]
+            wake_observer: tokio::sync::Mutex::new(None),
         })
     }
 
@@ -188,6 +190,8 @@ mod tests {
             restart_tx,
             notification_settings: tokio::sync::Mutex::new(NotificationSettings::default()),
             notification_state: tokio::sync::Mutex::new(NotificationState::default()),
+            #[cfg(target_os = "macos")]
+            wake_observer: tokio::sync::Mutex::new(None),
         })
     }
 
@@ -228,6 +232,8 @@ mod tests {
                 restart_tx,
                 notification_settings: tokio::sync::Mutex::new(NotificationSettings::default()),
                 notification_state: tokio::sync::Mutex::new(NotificationState::default()),
+                #[cfg(target_os = "macos")]
+                wake_observer: tokio::sync::Mutex::new(None),
             });
             let config = state.config.lock().await;
             let is_configured = config.organization_id.is_some() && config.session_token.is_some();
@@ -248,6 +254,8 @@ mod tests {
                 restart_tx,
                 notification_settings: tokio::sync::Mutex::new(NotificationSettings::default()),
                 notification_state: tokio::sync::Mutex::new(NotificationState::default()),
+                #[cfg(target_os = "macos")]
+                wake_observer: tokio::sync::Mutex::new(None),
             });
             let config = state.config.lock().await;
             let is_configured = config.organization_id.is_some() && config.session_token.is_some();
@@ -321,6 +329,8 @@ mod tests {
                 restart_tx,
                 notification_settings: tokio::sync::Mutex::new(NotificationSettings::default()),
                 notification_state: tokio::sync::Mutex::new(NotificationState::default()),
+                #[cfg(target_os = "macos")]
+                wake_observer: tokio::sync::Mutex::new(None),
             });
 
             // Mark current value as seen
@@ -512,6 +522,8 @@ mod tests {
                 restart_tx,
                 notification_settings: tokio::sync::Mutex::new(NotificationSettings::default()),
                 notification_state: tokio::sync::Mutex::new(NotificationState::default()),
+                #[cfg(target_os = "macos")]
+                wake_observer: tokio::sync::Mutex::new(None),
             });
 
             // Mark current value as seen
