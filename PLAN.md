@@ -383,6 +383,7 @@ Critical issues to fix before the first public release.
 
 #### Distribution
 - [x] App icon design (all sizes)
+- [x] Single instance enforcement: Uses `tauri-plugin-single-instance` to prevent multiple app instances; shows existing window when second instance is launched
 - [x] System wake detection (macOS): Triggers immediate refresh when system wakes from sleep
   - Uses `objc2` crates for modern Objective-C interop (not deprecated `objc`)
   - Observes `NSWorkspaceDidWakeNotification` from NSWorkspace notification center
