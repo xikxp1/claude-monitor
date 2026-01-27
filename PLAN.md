@@ -383,6 +383,11 @@ Critical issues to fix before the first public release.
 
 #### Distribution
 - [x] App icon design (all sizes)
+- [x] System wake detection (macOS): Triggers immediate refresh when system wakes from sleep
+  - Uses `objc2` crates for modern Objective-C interop (not deprecated `objc`)
+  - Observes `NSWorkspaceDidWakeNotification` from NSWorkspace notification center
+  - Sends signal via existing `restart_tx` channel to trigger refresh loop
+  - Module: `wake_detection.rs` (conditionally compiled for macOS only)
 - [x] GitHub releases:
   - CI workflow (`.github/workflows/ci.yml`): Runs tests and builds on PRs/pushes to main
   - Release workflow (`.github/workflows/release.yml`): Builds signed releases on version tags

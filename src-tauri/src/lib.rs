@@ -9,6 +9,9 @@ mod tray;
 mod types;
 mod validation;
 
+#[cfg(target_os = "macos")]
+mod wake_detection;
+
 use auto_refresh::auto_refresh_loop;
 use commands::{
     cleanup_history, clear_credentials, get_default_settings, get_is_configured, get_usage,
@@ -154,14 +157,24 @@ pub fn run() {
                 restart_tx,
                 notification_settings: Mutex::new(notification_settings),
                 notification_state: Mutex::new(notification_state),
+                #[cfg(target_os = "macos")]
+                wake_observer: Mutex::new(None),
             });
+
+            // Start wake detection (macOS only)
+            #[cfg(target_os = "macos")]
+            {
+                let wake_observer =
+                    wake_detection::start_wake_monitor(state.restart_tx.clone());
+                *state.wake_observer.blocking_lock() = Some(wake_observer);
+            }
 
             // Manage state
             app.manage(state.clone());
 
             // Spawn auto-refresh loop
             let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(auto_refresh_loop(app_handle, state));
+            tauri::async_runtime::spawn(auto_refresh_loop(app_handle, state.clone()));
 
             // Create tray (required by NSPopover plugin which looks up tray by ID "main")
             create_tray(app.handle())?;

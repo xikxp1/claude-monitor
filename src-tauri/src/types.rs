@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::{watch, Mutex};
 
+#[cfg(target_os = "macos")]
+use objc2::rc::Retained;
+
 // ============================================================================
 // API Types
 // ============================================================================
@@ -149,4 +152,7 @@ pub struct AppState {
     pub notification_settings: Mutex<NotificationSettings>,
     /// Notification state (tracks what's been notified)
     pub notification_state: Mutex<NotificationState>,
+    /// macOS-only: Keep the wake observer alive
+    #[cfg(target_os = "macos")]
+    pub wake_observer: Mutex<Option<Retained<crate::wake_detection::WakeObserver>>>,
 }

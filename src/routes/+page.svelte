@@ -632,6 +632,8 @@
               {@render usageCard("Sonnet (7 Day)", usageData.usageData.seven_day_sonnet)}
               {@render usageCard("Opus (7 Day)", usageData.usageData.seven_day_opus)}
             </div>
+          {:else}
+            <div class="text-center text-sm text-base-content/60 py-10">No usage data available</div>
           {/if}
         {/if}
       </section>
