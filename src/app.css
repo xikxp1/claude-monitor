@@ -119,12 +119,24 @@ html, body {
   padding: 0;
   overflow: hidden;
   background: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
 }
 
 :root {
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 14px;
   line-height: 1.5;
+}
+
+/* Allow text selection in inputs */
+input,
+textarea,
+[contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
 }
 
 /* Muted placeholder text */
