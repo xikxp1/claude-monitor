@@ -68,6 +68,7 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
 
     let _tray = TrayIconBuilder::with_id("main")
         .icon(icon)
+        .icon_as_template(true)
         .tooltip("Claude Monitor")
         .menu(&menu)
         .show_menu_on_left_click(false)
