@@ -589,7 +589,7 @@
           <div class="flex flex-col text-xs text-base-content/60">
             <span>Updated: {formatSecondsAgo(usageData.secondsSinceLastUpdate)}</span>
             {#if settings.autoRefreshEnabled}
-              <span>Next: {formatCountdown(usageData.secondsUntilNextUpdate)}</span>
+              <span>Next in: {formatCountdown(usageData.secondsUntilNextUpdate)}</span>
             {:else}
               <span class="italic opacity-70">Auto-refresh off</span>
             {/if}
