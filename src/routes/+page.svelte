@@ -336,8 +336,8 @@
                   settings.toggleHourlyRefresh(e.currentTarget.checked)}
               />
               <div class="flex flex-col">
-                <span class="font-medium">Refresh on limit reset</span>
-                <span class="text-xs text-base-content/60">Auto-refresh when hourly limits reset</span>
+                <span class="font-medium">Refresh when hour starts</span>
+                <span class="text-xs text-base-content/60">Auto-refresh in the first minute of every hour</span>
               </div>
             </label>
 
@@ -618,20 +618,21 @@
               </button>
             </div>
           </div>
-        {:else if settings.error}
-          <div class="alert alert-error text-sm py-2">
-            <span>{settings.error}</span>
-            <button class="btn btn-sm btn-ghost" onclick={() => usageData.refreshNow()}>Retry</button>
-          </div>
-        {:else if usageData.usageData}
-          <div class="flex flex-col gap-2.5">
-            {@render usageCard("5 Hour", usageData.usageData.five_hour)}
-            {@render usageCard("7 Day", usageData.usageData.seven_day)}
-            {@render usageCard("Sonnet (7 Day)", usageData.usageData.seven_day_sonnet)}
-            {@render usageCard("Opus (7 Day)", usageData.usageData.seven_day_opus)}
-          </div>
         {:else}
-          <div class="text-center text-sm text-base-content/60 py-10">No usage data available</div>
+          {#if settings.error}
+            <div class="alert alert-error text-sm py-2">
+              <span>{settings.error}</span>
+              <button class="btn btn-sm btn-ghost" onclick={() => usageData.refreshNow()}>Retry</button>
+            </div>
+          {/if}
+          {#if usageData.usageData}
+            <div class="flex flex-col gap-2.5">
+              {@render usageCard("5 Hour", usageData.usageData.five_hour)}
+              {@render usageCard("7 Day", usageData.usageData.seven_day)}
+              {@render usageCard("Sonnet (7 Day)", usageData.usageData.seven_day_sonnet)}
+              {@render usageCard("Opus (7 Day)", usageData.usageData.seven_day_opus)}
+            </div>
+          {/if}
         {/if}
       </section>
     {/if}
