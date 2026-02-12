@@ -5013,8 +5013,8 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-nspopover"
-version = "4.0.1"
-source = "git+https://github.com/freethinkel/tauri-nspopover-plugin.git#c5c5405b78eb1cf1afc21a5cf36bcf87a504a8db"
+version = "4.0.2"
+source = "git+https://github.com/freethinkel/tauri-nspopover-plugin.git#aa60951307289cb5c9f1d19e04e8a630e77dd01f"
 dependencies = [
  "cocoa 0.25.0",
  "objc",
