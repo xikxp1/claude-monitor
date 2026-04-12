@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Claude Monitor",
-  "version": "0.1.4",
   "identifier": "dev.xikxp1.claude-monitor",
   "build": {
     "beforeDevCommand": "bun run dev",

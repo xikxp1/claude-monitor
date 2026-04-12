@@ -4,7 +4,7 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { commands } from "$lib/bindings.generated";
-import type { UsageData } from "$lib/types";
+import type { UsageSnapshot } from "$lib/types";
 
 export interface UsageDataCallbacks {
   isAutoRefreshEnabled: () => boolean;
@@ -14,7 +14,7 @@ export interface UsageDataCallbacks {
 }
 
 export function useUsageData(callbacks: UsageDataCallbacks) {
-  let usageData: UsageData | null = $state(null);
+  let usageData: UsageSnapshot | null = $state(null);
   let lastUpdateTime: Date | null = $state(null);
   let nextRefreshAt: number | null = $state(null);
   let secondsUntilNextUpdate = $state(0);
@@ -25,18 +25,15 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
   let unlistenFns: UnlistenFn[] = [];
 
   function updateTimers() {
-    // Update countdown to next refresh
     if (nextRefreshAt && callbacks.isAutoRefreshEnabled()) {
-      const remaining = Math.max(
+      secondsUntilNextUpdate = Math.max(
         0,
         Math.floor((nextRefreshAt - Date.now()) / 1000),
       );
-      secondsUntilNextUpdate = remaining;
     } else {
       secondsUntilNextUpdate = 0;
     }
 
-    // Update time since last update
     if (lastUpdateTime) {
       secondsSinceLastUpdate = Math.floor(
         (Date.now() - lastUpdateTime.getTime()) / 1000,
@@ -45,8 +42,9 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
   }
 
   function startInterval() {
-    if (countdownInterval) return;
-    countdownInterval = setInterval(updateTimers, 1000);
+    if (!countdownInterval) {
+      countdownInterval = setInterval(updateTimers, 1000);
+    }
   }
 
   function stopInterval() {
@@ -59,65 +57,51 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
   function handleVisibilityChange() {
     if (document.hidden) {
       stopInterval();
-    } else {
-      // Update immediately when becoming visible, then start interval
-      updateTimers();
-      startInterval();
+      return;
     }
+
+    updateTimers();
+    startInterval();
   }
 
   function startCountdown() {
     stopCountdown();
-
-    // Start the interval
     startInterval();
-
-    // Set up visibility change listener to pause when hidden
     visibilityHandler = handleVisibilityChange;
     document.addEventListener("visibilitychange", visibilityHandler);
   }
 
   function stopCountdown() {
     stopInterval();
-
-    // Remove visibility change listener
     if (visibilityHandler) {
       document.removeEventListener("visibilitychange", visibilityHandler);
       visibilityHandler = null;
     }
   }
 
-  /**
-   * Set up event listeners for backend events
-   */
   async function setupEventListeners() {
     unlistenFns.push(
-      await listen<{ usage: UsageData; nextRefreshAt: number | null }>(
+      await listen<{ usage: UsageSnapshot; nextRefreshAt: number | null }>(
         "usage-updated",
         (event) => {
-          const { usage, nextRefreshAt: nextAt } = event.payload;
-          usageData = usage;
+          usageData = event.payload.usage;
           lastUpdateTime = new Date();
-          nextRefreshAt = nextAt;
+          nextRefreshAt = event.payload.nextRefreshAt;
           secondsSinceLastUpdate = 0;
           callbacks.setError(null);
           callbacks.setLoading(false);
-          // Usage snapshots and notifications are processed by the Rust backend
         },
       ),
     );
 
     unlistenFns.push(
-      await listen<{ error: string }>("usage-error", (event) => {
+      await listen<{ provider: string; error: string }>("usage-error", (event) => {
         callbacks.setError(event.payload.error);
         callbacks.setLoading(false);
       }),
     );
   }
 
-  /**
-   * Trigger immediate refresh
-   */
   async function refreshNow() {
     if (!callbacks.isConfigured()) {
       return;
@@ -127,18 +111,17 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
     callbacks.setError(null);
 
     try {
-      await commands.refreshNow();
+      const result = await commands.refreshNow();
+      if (result.status === "error") {
+        throw new Error(result.error ?? "Failed to refresh");
+      }
     } catch (e) {
       console.error("Failed to trigger refresh:", e);
-      const errorMsg = e instanceof Error ? e.message : "Failed to refresh";
-      callbacks.setError(errorMsg);
+      callbacks.setError(e instanceof Error ? e.message : "Failed to refresh");
       callbacks.setLoading(false);
     }
   }
 
-  /**
-   * Clean up event listeners and countdown
-   */
   function cleanup() {
     for (const unlisten of unlistenFns) {
       unlisten();
@@ -147,18 +130,15 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
     stopCountdown();
   }
 
-  /**
-   * Reset usage data (called when clearing settings)
-   */
   function reset() {
     usageData = null;
     lastUpdateTime = null;
     nextRefreshAt = null;
     secondsSinceLastUpdate = 0;
+    secondsUntilNextUpdate = 0;
   }
 
   return {
-    // State
     get usageData() {
       return usageData;
     },
@@ -174,8 +154,6 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
     get secondsSinceLastUpdate() {
       return secondsSinceLastUpdate;
     },
-
-    // Actions
     setupEventListeners,
     startCountdown,
     stopCountdown,

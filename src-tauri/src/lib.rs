@@ -14,14 +14,14 @@ mod wake_detection;
 
 use auto_refresh::auto_refresh_loop;
 use commands::{
-    cleanup_history, clear_credentials, get_default_settings, get_is_configured, get_usage,
-    get_usage_history_by_range, get_usage_stats, refresh_now, save_credentials, set_auto_refresh,
-    set_hourly_refresh, set_notification_settings,
+    cleanup_history, clear_credentials, get_default_settings, get_provider_statuses, get_usage,
+    get_usage_history_by_range, get_usage_stats, refresh_now, save_credentials,
+    set_active_provider, set_auto_refresh, set_hourly_refresh, set_notification_settings,
 };
 use tray::create_tray;
 use types::{AppState, AutoRefreshConfig, NotificationSettings, NotificationState};
 
-use specta_typescript::{BigIntExportBehavior, Typescript};
+use specta_typescript::Typescript;
 use std::backtrace::Backtrace;
 use std::sync::Arc;
 use tauri_plugin_log::{Target, TargetKind};
@@ -35,8 +35,9 @@ pub fn run() {
         get_usage,
         get_default_settings,
         save_credentials,
-        get_is_configured,
         clear_credentials,
+        get_provider_statuses,
+        set_active_provider,
         set_auto_refresh,
         set_hourly_refresh,
         refresh_now,
@@ -48,10 +49,7 @@ pub fn run() {
 
     #[cfg(debug_assertions)]
     builder
-        .export(
-            Typescript::default().bigint(BigIntExportBehavior::Number),
-            "../src/lib/bindings.generated.ts",
-        )
+        .export(Typescript::default(), "../src/lib/bindings.generated.ts")
         .expect("Failed to export typescript bindings");
 
     // Initialize platform-agnostic plugins
@@ -109,8 +107,10 @@ pub fn run() {
             // Try to load credentials from OS keychain
             let initial_credentials = credentials::load_credentials();
 
+            let settings_store = app.store("settings.json");
+
             // Load hourly refresh setting from store
-            let hourly_refresh_enabled = match app.store("settings.json") {
+            let hourly_refresh_enabled = match &settings_store {
                 Ok(store) => store
                     .get("hourly_refresh_enabled")
                     .and_then(|v| v.as_bool())
@@ -118,9 +118,18 @@ pub fn run() {
                 Err(_) => false,
             };
 
+            let active_provider = match &settings_store {
+                Ok(store) => store
+                    .get("active_provider")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or(types::ProviderKind::Claude),
+                Err(_) => types::ProviderKind::Claude,
+            };
+
             // Create initial config with loaded credentials
             let initial_config = match initial_credentials {
                 Some((org_id, token)) => AutoRefreshConfig {
+                    active_provider,
                     organization_id: Some(org_id),
                     session_token: Some(token),
                     enabled: true,
@@ -128,16 +137,17 @@ pub fn run() {
                     hourly_refresh_enabled,
                 },
                 None => AutoRefreshConfig {
+                    active_provider,
                     hourly_refresh_enabled,
                     ..AutoRefreshConfig::default()
                 },
             };
 
             // Load notification settings from store
-            let notification_settings = match app.store("settings.json") {
+            let notification_settings = match &settings_store {
                 Ok(store) => {
                     store
-                        .get("notificationSettings")
+                        .get("notification_settings")
                         .and_then(|v| serde_json::from_value(v.clone()).ok())
                         .unwrap_or_default()
                 }
@@ -145,10 +155,10 @@ pub fn run() {
             };
 
             // Load notification state from store
-            let notification_state = match app.store("settings.json") {
+            let notification_state = match &settings_store {
                 Ok(store) => {
                     store
-                        .get("notificationState")
+                        .get("notification_state")
                         .and_then(|v| serde_json::from_value(v.clone()).ok())
                         .unwrap_or_default()
                 }

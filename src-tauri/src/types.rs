@@ -1,40 +1,68 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
+use std::collections::BTreeMap;
 use tokio::sync::{watch, Mutex};
 
 #[cfg(target_os = "macos")]
 use objc2::rc::Retained;
 
 // ============================================================================
-// API Types
+// Provider & Usage Types
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct UsageData {
-    pub five_hour: Option<UsagePeriod>,
-    pub seven_day: Option<UsagePeriod>,
-    pub seven_day_sonnet: Option<UsagePeriod>,
-    pub seven_day_opus: Option<UsagePeriod>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum ProviderKind {
+    Claude,
+    Codex,
+}
+
+impl ProviderKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct UsagePeriod {
+#[serde(rename_all = "camelCase")]
+pub struct UsageWindow {
+    pub key: String,
+    pub label: String,
     pub utilization: f64,
     pub resets_at: Option<String>,
+    pub window_duration_seconds: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageSnapshot {
+    pub provider: ProviderKind,
+    pub windows: Vec<UsageWindow>,
+    pub account_email: Option<String>,
+    pub plan_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct ProviderStatus {
+    pub provider: ProviderKind,
+    pub configured: bool,
+    pub source: String,
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct Settings {
-    pub organization_id: Option<String>,
-    pub session_token: Option<String>,
+    pub active_provider: ProviderKind,
     pub refresh_interval_minutes: u32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            organization_id: None,
-            session_token: None,
+            active_provider: ProviderKind::Claude,
             refresh_interval_minutes: 5,
         }
     }
@@ -44,16 +72,13 @@ impl Default for Settings {
 // Notification Types
 // ============================================================================
 
-/// Notification rule for a single usage type
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct NotificationRule {
     pub interval_enabled: bool,
     pub interval_percent: u32,
     pub threshold_enabled: bool,
     pub thresholds: Vec<u32>,
-    /// Enable time-remaining notifications (notify when close to reset)
     pub time_remaining_enabled: bool,
-    /// Time thresholds in minutes (e.g., [30, 60] = notify at 30min and 1hr before reset)
     pub time_remaining_minutes: Vec<u32>,
 }
 
@@ -70,37 +95,76 @@ impl Default for NotificationRule {
     }
 }
 
-/// Notification settings for all usage types
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Type)]
 pub struct NotificationSettings {
     pub enabled: bool,
-    pub five_hour: NotificationRule,
-    pub seven_day: NotificationRule,
-    pub seven_day_sonnet: NotificationRule,
-    pub seven_day_opus: NotificationRule,
+    pub rules: BTreeMap<String, NotificationRule>,
 }
 
 impl Default for NotificationSettings {
     fn default() -> Self {
         Self {
             enabled: true,
-            five_hour: NotificationRule::default(),
-            seven_day: NotificationRule::default(),
-            seven_day_sonnet: NotificationRule::default(),
-            seven_day_opus: NotificationRule::default(),
+            rules: BTreeMap::new(),
         }
     }
 }
 
-/// Tracks which notifications have been sent to avoid duplicates
+#[derive(Debug, Deserialize)]
+struct LegacyNotificationSettings {
+    enabled: Option<bool>,
+    five_hour: Option<NotificationRule>,
+    seven_day: Option<NotificationRule>,
+    seven_day_sonnet: Option<NotificationRule>,
+    seven_day_opus: Option<NotificationRule>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum NotificationSettingsSerde {
+    Current {
+        enabled: bool,
+        rules: BTreeMap<String, NotificationRule>,
+    },
+    Legacy(LegacyNotificationSettings),
+}
+
+impl<'de> Deserialize<'de> for NotificationSettings {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let parsed = NotificationSettingsSerde::deserialize(deserializer)?;
+        Ok(match parsed {
+            NotificationSettingsSerde::Current { enabled, rules } => Self { enabled, rules },
+            NotificationSettingsSerde::Legacy(legacy) => {
+                let mut rules = BTreeMap::new();
+                if let Some(rule) = legacy.five_hour {
+                    rules.insert("claude:five_hour".to_string(), rule);
+                }
+                if let Some(rule) = legacy.seven_day {
+                    rules.insert("claude:seven_day".to_string(), rule);
+                }
+                if let Some(rule) = legacy.seven_day_sonnet {
+                    rules.insert("claude:seven_day_sonnet".to_string(), rule);
+                }
+                if let Some(rule) = legacy.seven_day_opus {
+                    rules.insert("claude:seven_day_opus".to_string(), rule);
+                }
+
+                Self {
+                    enabled: legacy.enabled.unwrap_or(true),
+                    rules,
+                }
+            }
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, Type)]
 pub struct NotificationState {
-    pub five_hour_last: f64,
-    pub seven_day_last: f64,
-    pub seven_day_sonnet_last: f64,
-    pub seven_day_opus_last: f64,
+    pub last_notified: BTreeMap<String, f64>,
     pub fired_thresholds: Vec<String>,
-    /// Tracks fired time-remaining notifications (format: "usage_type:minutes")
     pub fired_time_remaining: Vec<String>,
 }
 
@@ -110,6 +174,7 @@ pub struct NotificationState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutoRefreshConfig {
+    pub active_provider: ProviderKind,
     pub organization_id: Option<String>,
     pub session_token: Option<String>,
     pub enabled: bool,
@@ -120,6 +185,7 @@ pub struct AutoRefreshConfig {
 impl Default for AutoRefreshConfig {
     fn default() -> Self {
         Self {
+            active_provider: ProviderKind::Claude,
             organization_id: None,
             session_token: None,
             enabled: true,
@@ -129,30 +195,49 @@ impl Default for AutoRefreshConfig {
     }
 }
 
-/// Event payload sent to frontend when usage is updated
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageUpdateEvent {
-    pub usage: UsageData,
-    pub next_refresh_at: Option<i64>, // Unix timestamp in milliseconds
+    pub usage: UsageSnapshot,
+    pub next_refresh_at: Option<i64>,
 }
 
-/// Event payload sent to frontend when an error occurs
 #[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct UsageErrorEvent {
+    pub provider: ProviderKind,
     pub error: String,
 }
 
-/// Shared application state
 pub struct AppState {
     pub config: Mutex<AutoRefreshConfig>,
-    /// Channel to signal the refresh loop to restart
     pub restart_tx: watch::Sender<()>,
-    /// Notification settings
     pub notification_settings: Mutex<NotificationSettings>,
-    /// Notification state (tracks what's been notified)
     pub notification_state: Mutex<NotificationState>,
-    /// macOS-only: Keep the wake observer alive
     #[cfg(target_os = "macos")]
     pub wake_observer: Mutex<Option<Retained<crate::wake_detection::WakeObserver>>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserializes_legacy_notification_settings() {
+        let json = r#"{
+            "enabled": true,
+            "five_hour": {
+                "interval_enabled": false,
+                "interval_percent": 10,
+                "threshold_enabled": true,
+                "thresholds": [80, 90],
+                "time_remaining_enabled": false,
+                "time_remaining_minutes": [30, 60]
+            }
+        }"#;
+
+        let parsed: NotificationSettings = serde_json::from_str(json).unwrap();
+        assert!(parsed.enabled);
+        assert!(parsed.rules.contains_key("claude:five_hour"));
+    }
 }

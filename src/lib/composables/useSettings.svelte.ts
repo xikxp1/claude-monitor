@@ -1,5 +1,5 @@
 /**
- * Settings composable - manages credentials, general settings, autostart, and notifications
+ * Settings composable - manages provider selection, credentials, general settings, and notifications
  */
 
 import {
@@ -10,13 +10,34 @@ import {
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { commands } from "$lib/bindings.generated";
 import { cleanupOldData } from "$lib/historyStorage";
-import type { NotificationSettings } from "$lib/types";
-import { getDefaultNotificationSettings } from "$lib/types";
+import type { NotificationSettings, ProviderKind, ProviderStatus } from "$lib/types";
+import {
+  PROVIDER_LABELS,
+  getDefaultNotificationSettings,
+  normalizeNotificationSettings,
+} from "$lib/types";
 import { debounce } from "$lib/utils";
 
 export interface SettingsCallbacks {
   onSuccess?: (message: string) => void;
   onError?: (message: string) => void;
+}
+
+function emptyProviderStatuses(): Record<ProviderKind, ProviderStatus> {
+  return {
+    claude: {
+      provider: "claude",
+      configured: false,
+      source: "keychain",
+      message: "Add your Claude organization ID and session token.",
+    },
+    codex: {
+      provider: "codex",
+      configured: false,
+      source: "auth-json",
+      message: "Run `codex login` to enable Codex monitoring.",
+    },
+  };
 }
 
 export function useSettings(callbacks: SettingsCallbacks = {}) {
@@ -26,117 +47,127 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     defaults: {},
   });
 
-  // UI state
   let showSettings = $state(false);
-  let settingsTab: "credentials" | "notifications" | "general" | "updates" =
-    $state("credentials");
+  let settingsTab: "account" | "notifications" | "general" | "updates" =
+    $state("account");
 
-  // Credentials state (form inputs only - actual credentials are server-side)
-  let isConfigured = $state(false);
+  let activeProvider: ProviderKind = $state("claude");
+  let providerStatuses: Record<ProviderKind, ProviderStatus> = $state(
+    emptyProviderStatuses(),
+  );
+
   let orgIdInput = $state("");
   let tokenInput = $state("");
 
-  // General settings
   let refreshIntervalMinutes = $state(5);
   let autoRefreshEnabled = $state(true);
   let hourlyRefreshEnabled = $state(false);
   let autostartEnabled = $state(false);
   let dataRetentionDays = $state(30);
-
-  // Notification settings
   let notificationSettings: NotificationSettings = $state(
     getDefaultNotificationSettings(),
   );
 
-  // Loading/error state
   let loading = $state(false);
   let error = $state<string | null>(null);
 
-  // Helper to check if error is a session expiration
-  function checkSessionExpired(): boolean {
-    return error !== null && error.toLowerCase().includes("session expired");
+  async function refreshProviderStatuses() {
+    try {
+      const result = await commands.getProviderStatuses();
+      if (result.status === "ok") {
+        providerStatuses = result.data.reduce(
+          (acc, status) => {
+            acc[status.provider] = status;
+            return acc;
+          },
+          emptyProviderStatuses(),
+        );
+      }
+    } catch (e) {
+      console.error("Failed to load provider statuses:", e);
+    }
   }
 
-  /**
-   * Initialize settings from store and backend
-   */
-  async function init() {
-    // Check if configured from backend
-    try {
-      const result = await commands.getIsConfigured();
-      isConfigured = result.status === "ok" ? result.data : false;
-    } catch (e) {
-      console.error("Failed to check configuration status:", e);
-      isConfigured = false;
+  function isAuthExpiredError() {
+    if (!error) {
+      return false;
     }
 
-    // Load general settings from store
+    const normalized = error.toLowerCase();
+    return normalized.includes("expired") || normalized.includes("authentication");
+  }
+
+  async function init() {
+    const savedProvider = await store.get<ProviderKind>("active_provider");
+    activeProvider = savedProvider ?? "claude";
+
     const savedInterval = await store.get<number>("refresh_interval_minutes");
     const savedAutoRefresh = await store.get<boolean>("auto_refresh_enabled");
     const savedHourlyRefresh = await store.get<boolean>("hourly_refresh_enabled");
+    const savedNotificationSettings = await store.get<unknown>(
+      "notification_settings",
+    );
+    const savedRetention = await store.get<number>("data_retention_days");
 
     refreshIntervalMinutes = savedInterval ?? 5;
     autoRefreshEnabled = savedAutoRefresh ?? true;
     hourlyRefreshEnabled = savedHourlyRefresh ?? false;
+    notificationSettings = normalizeNotificationSettings(savedNotificationSettings);
+    dataRetentionDays = savedRetention ?? 30;
 
-    // Load notification settings
-    const savedNotificationSettings = await store.get<NotificationSettings>(
-      "notification_settings",
-    );
     if (savedNotificationSettings) {
-      notificationSettings = savedNotificationSettings;
+      await store.set("notification_settings", notificationSettings);
     }
 
-    // Sync notification settings to backend
-    try {
-      await commands.setNotificationSettings(notificationSettings);
-    } catch (e) {
-      console.error("Failed to sync notification settings to backend:", e);
+    await refreshProviderStatuses();
+
+    const syncResults = await Promise.all([
+      commands.setActiveProvider(activeProvider),
+      commands.setNotificationSettings(notificationSettings),
+      commands.setAutoRefresh(autoRefreshEnabled, refreshIntervalMinutes),
+      commands.setHourlyRefresh(hourlyRefreshEnabled),
+    ]);
+
+    if (syncResults.some((result) => result.status === "error")) {
+      console.error("Failed to sync settings to backend:", syncResults);
     }
 
-    // Load autostart state
     try {
       autostartEnabled = await isAutostartEnabled();
     } catch {
       autostartEnabled = false;
     }
 
-    // Load data retention setting
-    const savedRetention = await store.get<number>("data_retention_days");
-    dataRetentionDays = savedRetention ?? 30;
-
-    // Cleanup old data based on retention policy
     try {
       await cleanupOldData(dataRetentionDays);
     } catch {
-      // Ignore cleanup errors - non-critical
-    }
-
-    // Send auto-refresh settings to backend
-    try {
-      await commands.setAutoRefresh(autoRefreshEnabled, refreshIntervalMinutes);
-    } catch (e) {
-      console.error("Failed to set auto-refresh settings:", e);
-    }
-
-    // Send hourly refresh setting to backend
-    try {
-      await commands.setHourlyRefresh(hourlyRefreshEnabled);
-    } catch (e) {
-      console.error("Failed to set hourly refresh setting:", e);
+      // ignore cleanup errors
     }
   }
 
-  /**
-   * Save credentials to backend
-   */
+  async function setActiveProvider(nextProvider: ProviderKind) {
+    activeProvider = nextProvider;
+    error = null;
+
+    try {
+      await store.set("active_provider", nextProvider);
+      const result = await commands.setActiveProvider(nextProvider);
+      if (result.status === "error") {
+        throw new Error(result.error ?? "Failed to switch provider");
+      }
+      await refreshProviderStatuses();
+      onSuccess?.(`${PROVIDER_LABELS[nextProvider]} selected`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to switch provider";
+      onError?.(msg);
+    }
+  }
+
   async function saveCredentials() {
-    const wasConfigured = isConfigured;
     loading = true;
     error = null;
 
     const result = await commands.saveCredentials(orgIdInput, tokenInput);
-
     if (result.status === "error") {
       error = result.error;
       loading = false;
@@ -144,81 +175,56 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
       return;
     }
 
-    // Clear form inputs
     orgIdInput = "";
     tokenInput = "";
-
-    // Update configured state
-    const configResult = await commands.getIsConfigured();
-    isConfigured = configResult.status === "ok" ? configResult.data : false;
-
+    await refreshProviderStatuses();
     showSettings = false;
-
-    // For initial setup, keep loading=true while waiting for first data fetch
-    // The backend event handler will set loading=false when data arrives
-    if (wasConfigured) {
-      loading = false;
-    }
-
-    onSuccess?.("Credentials saved");
+    loading = false;
+    onSuccess?.("Claude credentials saved");
   }
 
-  /**
-   * Internal: persist notification settings (debounced)
-   */
   async function persistNotifications(newSettings: NotificationSettings) {
     try {
       await store.set("notification_settings", newSettings);
-      await commands.setNotificationSettings(newSettings);
+      const result = await commands.setNotificationSettings(newSettings);
+      if (result.status === "error") {
+        throw new Error(result.error ?? "Failed to save notification settings");
+      }
       onSuccess?.("Notification settings saved");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to save notification settings";
-      onError?.(msg);
+      onError?.(e instanceof Error ? e.message : "Failed to save notification settings");
     }
   }
 
   const debouncedPersistNotifications = debounce(persistNotifications, 1000);
 
-  /**
-   * Save notification settings (immediate UI update, debounced persistence)
-   */
   function saveNotifications(newSettings: NotificationSettings) {
     notificationSettings = newSettings;
     debouncedPersistNotifications(newSettings);
   }
 
-  /**
-   * Internal: persist general settings (debounced)
-   */
   async function persistGeneral(enabled: boolean, intervalMinutes: number) {
     try {
       await store.set("auto_refresh_enabled", enabled);
       await store.set("refresh_interval_minutes", intervalMinutes);
-      await commands.setAutoRefresh(enabled, intervalMinutes);
+      const result = await commands.setAutoRefresh(enabled, intervalMinutes);
+      if (result.status === "error") {
+        throw new Error(result.error ?? "Failed to save settings");
+      }
       onSuccess?.("Settings saved");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to save settings";
-      onError?.(msg);
+      onError?.(e instanceof Error ? e.message : "Failed to save settings");
     }
   }
 
   const debouncedPersistGeneral = debounce(persistGeneral, 1000);
 
-  /**
-   * Save general settings (immediate UI update, debounced persistence)
-   */
-  function saveGeneral(
-    newAutoRefreshEnabled: boolean,
-    newRefreshIntervalMinutes: number,
-  ) {
-    autoRefreshEnabled = newAutoRefreshEnabled;
-    refreshIntervalMinutes = newRefreshIntervalMinutes;
-    debouncedPersistGeneral(newAutoRefreshEnabled, newRefreshIntervalMinutes);
+  function saveGeneral(enabled: boolean, intervalMinutes: number) {
+    autoRefreshEnabled = enabled;
+    refreshIntervalMinutes = intervalMinutes;
+    debouncedPersistGeneral(enabled, intervalMinutes);
   }
 
-  /**
-   * Toggle autostart (not debounced - discrete action)
-   */
   async function toggleAutostart(enabled: boolean) {
     try {
       if (enabled) {
@@ -229,53 +235,41 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
       autostartEnabled = enabled;
       onSuccess?.(enabled ? "Autostart enabled" : "Autostart disabled");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to toggle autostart";
-      onError?.(msg);
+      onError?.(e instanceof Error ? e.message : "Failed to toggle autostart");
     }
   }
 
-  /**
-   * Toggle hourly refresh (not debounced - discrete action)
-   */
   async function toggleHourlyRefresh(enabled: boolean) {
     try {
       await store.set("hourly_refresh_enabled", enabled);
-      await commands.setHourlyRefresh(enabled);
+      const result = await commands.setHourlyRefresh(enabled);
+      if (result.status === "error") {
+        throw new Error(result.error ?? "Failed to save hourly refresh setting");
+      }
       hourlyRefreshEnabled = enabled;
       onSuccess?.(enabled ? "Hourly refresh enabled" : "Hourly refresh disabled");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to save hourly refresh setting";
-      onError?.(msg);
+      onError?.(e instanceof Error ? e.message : "Failed to save hourly refresh setting");
     }
   }
 
-  /**
-   * Internal: persist retention setting (debounced)
-   */
   async function persistRetention(days: number) {
     try {
       await store.set("data_retention_days", days);
       await cleanupOldData(days);
       onSuccess?.("Data retention updated");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to save retention settings";
-      onError?.(msg);
+      onError?.(e instanceof Error ? e.message : "Failed to save retention settings");
     }
   }
 
   const debouncedPersistRetention = debounce(persistRetention, 1000);
 
-  /**
-   * Save data retention setting (immediate UI update, debounced persistence)
-   */
   function saveRetention(days: number) {
     dataRetentionDays = days;
     debouncedPersistRetention(days);
   }
 
-  /**
-   * Log out - clears only credentials, keeps other settings
-   */
   async function logout() {
     const result = await commands.clearCredentials();
     if (result.status === "error") {
@@ -283,18 +277,14 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
       return;
     }
 
-    isConfigured = false;
     orgIdInput = "";
     tokenInput = "";
-    showSettings = false;
     error = null;
-
-    onSuccess?.("Logged out");
+    showSettings = false;
+    await refreshProviderStatuses();
+    onSuccess?.("Claude credentials cleared");
   }
 
-  /**
-   * Reset all settings to defaults (factory reset)
-   */
   async function resetAll() {
     const result = await commands.clearCredentials();
     if (result.status === "error") {
@@ -303,28 +293,22 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     }
 
     await store.clear();
-
-    // Reset state variables
+    activeProvider = "claude";
     refreshIntervalMinutes = 5;
     autoRefreshEnabled = true;
     hourlyRefreshEnabled = false;
     dataRetentionDays = 30;
-    isConfigured = false;
     orgIdInput = "";
     tokenInput = "";
     notificationSettings = getDefaultNotificationSettings();
     showSettings = false;
     error = null;
 
-    // Sync reset notification settings to backend
+    await commands.setActiveProvider("claude");
     await commands.setNotificationSettings(notificationSettings);
-
-    // Reset auto-refresh settings to backend
     await commands.setAutoRefresh(true, 5);
-
-    // Reset hourly refresh setting to backend
     await commands.setHourlyRefresh(false);
-
+    await refreshProviderStatuses();
     onSuccess?.("All settings reset");
   }
 
@@ -340,20 +324,14 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     showSettings = !showSettings;
   }
 
-  /**
-   * Open settings directly to the credentials tab (for re-login)
-   */
   function openCredentials() {
-    settingsTab = "credentials";
+    settingsTab = "account";
     showSettings = true;
     error = null;
   }
 
   return {
-    // Store reference (for other composables)
     store,
-
-    // UI state
     get showSettings() {
       return showSettings;
     },
@@ -363,13 +341,20 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     get settingsTab() {
       return settingsTab;
     },
-    set settingsTab(value: "credentials" | "notifications" | "general" | "updates") {
+    set settingsTab(value: "account" | "notifications" | "general" | "updates") {
       settingsTab = value;
     },
-
-    // Credentials
+    get activeProvider() {
+      return activeProvider;
+    },
+    get providerStatuses() {
+      return providerStatuses;
+    },
     get isConfigured() {
-      return isConfigured;
+      return providerStatuses[activeProvider].configured;
+    },
+    get activeProviderStatus() {
+      return providerStatuses[activeProvider];
     },
     get orgIdInput() {
       return orgIdInput;
@@ -383,8 +368,6 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     set tokenInput(value: string) {
       tokenInput = value;
     },
-
-    // General settings
     get refreshIntervalMinutes() {
       return refreshIntervalMinutes;
     },
@@ -400,13 +383,9 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     get dataRetentionDays() {
       return dataRetentionDays;
     },
-
-    // Notification settings
     get notificationSettings() {
       return notificationSettings;
     },
-
-    // Loading/error
     get loading() {
       return loading;
     },
@@ -419,12 +398,12 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     set error(value: string | null) {
       error = value;
     },
-    get isSessionExpired() {
-      return checkSessionExpired();
+    get isAuthExpired() {
+      return isAuthExpiredError();
     },
-
-    // Actions
     init,
+    refreshProviderStatuses,
+    setActiveProvider,
     saveCredentials,
     saveNotifications,
     saveGeneral,

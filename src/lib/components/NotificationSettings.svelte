@@ -2,54 +2,29 @@
   import type {
     NotificationRule,
     NotificationSettings,
-    UsageType,
+    ProviderKind,
+    UsageWindow,
   } from "$lib/types";
-  import { USAGE_TYPE_LABELS } from "$lib/types";
+  import { getDefaultNotificationRule, getWindowRuleKey } from "$lib/types";
 
   interface Props {
     settings: NotificationSettings;
+    provider: ProviderKind;
+    windows: UsageWindow[];
     onchange: (settings: NotificationSettings) => void;
   }
 
-  let { settings, onchange }: Props = $props();
+  let { settings, provider, windows, onchange }: Props = $props();
 
-  let openSection: UsageType | null = $state(null);
+  let openSection: string | null = $state(null);
 
-  function toggleSection(usageType: UsageType) {
-    openSection = openSection === usageType ? null : usageType;
-  }
-
-  function updateRule(
-    usageType: UsageType,
-    updates: Partial<NotificationRule>,
-  ) {
-    const newSettings = {
-      ...settings,
-      [usageType]: { ...settings[usageType], ...updates },
-    };
-    onchange(newSettings);
-  }
-
-  // Predefined threshold options in percent
   const THRESHOLD_OPTIONS = [50, 80, 90, 95];
-
-  function toggleThreshold(usageType: UsageType, threshold: number) {
-    const rule = settings[usageType];
-    const current = rule.thresholds;
-    const newThresholds = current.includes(threshold)
-      ? current.filter((t) => t !== threshold)
-      : [...current, threshold].sort((a, b) => a - b);
-    updateRule(usageType, { thresholds: newThresholds });
-  }
-
-  // Predefined time options in minutes (short for 5h, extended for 7d)
   const TIME_OPTIONS_SHORT = [
     { value: 15, label: "15m" },
     { value: 30, label: "30m" },
     { value: 60, label: "1h" },
     { value: 120, label: "2h" },
   ];
-
   const TIME_OPTIONS_EXTENDED = [
     { value: 30, label: "30m" },
     { value: 60, label: "1h" },
@@ -60,37 +35,65 @@
     { value: 2880, label: "2d" },
   ];
 
-  function getTimeOptionsForUsageType(usageType: UsageType) {
-    return usageType === "five_hour" ? TIME_OPTIONS_SHORT : TIME_OPTIONS_EXTENDED;
+  function toggleSection(windowKey: string) {
+    openSection = openSection === windowKey ? null : windowKey;
   }
 
-  function toggleTimeOption(usageType: UsageType, minutes: number) {
-    const rule = settings[usageType];
-    const current = rule.time_remaining_minutes;
-    const newMinutes = current.includes(minutes)
-      ? current.filter((m) => m !== minutes)
-      : [...current, minutes].sort((a, b) => a - b);
-    updateRule(usageType, { time_remaining_minutes: newMinutes });
+  function getRule(windowKey: string): NotificationRule {
+    return settings.rules[getWindowRuleKey(provider, windowKey)] ?? getDefaultNotificationRule();
+  }
+
+  function updateRule(windowKey: string, updates: Partial<NotificationRule>) {
+    const ruleKey = getWindowRuleKey(provider, windowKey);
+    const nextSettings = {
+      ...settings,
+      rules: {
+        ...settings.rules,
+        [ruleKey]: {
+          ...getRule(windowKey),
+          ...updates,
+        },
+      },
+    };
+    onchange(nextSettings);
+  }
+
+  function toggleThreshold(windowKey: string, threshold: number) {
+    const rule = getRule(windowKey);
+    const thresholds = rule.thresholds.includes(threshold)
+      ? rule.thresholds.filter((value) => value !== threshold)
+      : [...rule.thresholds, threshold].sort((a, b) => a - b);
+    updateRule(windowKey, { thresholds });
+  }
+
+  function getTimeOptions(window: UsageWindow) {
+    const seconds = window.windowDurationSeconds ?? 0;
+    return seconds > 0 && seconds <= 21_600 ? TIME_OPTIONS_SHORT : TIME_OPTIONS_EXTENDED;
+  }
+
+  function toggleTimeOption(windowKey: string, minutes: number) {
+    const rule = getRule(windowKey);
+    const timeRemaining = rule.time_remaining_minutes.includes(minutes)
+      ? rule.time_remaining_minutes.filter((value) => value !== minutes)
+      : [...rule.time_remaining_minutes, minutes].sort((a, b) => a - b);
+    updateRule(windowKey, { time_remaining_minutes: timeRemaining });
   }
 
   function formatTimeMinutes(minutes: number[]): string {
     return minutes
-      .map((m) => {
-        if (m >= 60) {
-          const hours = Math.floor(m / 60);
-          const mins = m % 60;
-          return mins > 0 ? `${hours}h${mins}m` : `${hours}h`;
+      .map((value) => {
+        if (value >= 60) {
+          const hours = Math.floor(value / 60);
+          const remainder = value % 60;
+          return remainder > 0 ? `${hours}h${remainder}m` : `${hours}h`;
         }
-        return `${m}m`;
+        return `${value}m`;
       })
       .join(", ");
   }
 
-  function toggleEnabled() {
-    onchange({ ...settings, enabled: !settings.enabled });
-  }
-
-  function getRuleSummary(rule: NotificationRule): string {
+  function getRuleSummary(windowKey: string): string {
+    const rule = getRule(windowKey);
     const parts: string[] = [];
     if (rule.interval_enabled) parts.push(`every ${rule.interval_percent}%`);
     if (rule.threshold_enabled && rule.thresholds.length > 0) {
@@ -101,13 +104,6 @@
     }
     return parts.length > 0 ? parts.join(", ") : "off";
   }
-
-  const usageTypes: UsageType[] = [
-    "five_hour",
-    "seven_day",
-    "seven_day_sonnet",
-    "seven_day_opus",
-  ];
 </script>
 
 <div class="flex flex-col gap-2">
@@ -116,25 +112,25 @@
       type="checkbox"
       class="checkbox checkbox-primary checkbox-sm"
       checked={settings.enabled}
-      onchange={toggleEnabled}
+      onchange={() => onchange({ ...settings, enabled: !settings.enabled })}
     />
     <span>Enable notifications</span>
   </label>
 
   {#if settings.enabled}
     <div class="flex flex-col gap-1">
-      {#each usageTypes as usageType}
-        {@const rule = settings[usageType]}
-        {@const isOpen = openSection === usageType}
+      {#each windows as window (window.key)}
+        {@const rule = getRule(window.key)}
+        {@const isOpen = openSection === window.key}
         <div class="bg-base-200 rounded-md overflow-hidden">
           <button
             type="button"
             class="flex items-center gap-1.5 w-full px-2.5 py-2 bg-transparent border-none cursor-pointer text-left text-[0.85rem] hover:bg-base-300/50"
-            onclick={() => toggleSection(usageType)}
+            onclick={() => toggleSection(window.key)}
           >
             <span class="text-[0.65rem] w-2.5 text-base-content/50">{isOpen ? "▼" : "▶"}</span>
-            <span class="font-medium">{USAGE_TYPE_LABELS[usageType]}</span>
-            <span class="ml-auto text-xs text-base-content/50">{getRuleSummary(rule)}</span>
+            <span class="font-medium">{window.label}</span>
+            <span class="ml-auto text-xs text-base-content/50">{getRuleSummary(window.key)}</span>
           </button>
           {#if isOpen}
             <div class="px-2.5 pb-2.5 pl-6 flex flex-col gap-1.5">
@@ -144,7 +140,7 @@
                   class="checkbox checkbox-primary checkbox-xs"
                   checked={rule.interval_enabled}
                   onchange={() =>
-                    updateRule(usageType, {
+                    updateRule(window.key, {
                       interval_enabled: !rule.interval_enabled,
                     })}
                 />
@@ -153,12 +149,9 @@
                   class="select select-bordered select-xs"
                   value={rule.interval_percent}
                   disabled={!rule.interval_enabled}
-                  onchange={(e) =>
-                    updateRule(usageType, {
-                      interval_percent: Number.parseInt(
-                        e.currentTarget.value,
-                        10,
-                      ),
+                  onchange={(event) =>
+                    updateRule(window.key, {
+                      interval_percent: Number.parseInt(event.currentTarget.value, 10),
                     })}
                 >
                   <option value={5}>5%</option>
@@ -176,19 +169,19 @@
                     class="checkbox checkbox-primary checkbox-xs"
                     checked={rule.threshold_enabled}
                     onchange={() =>
-                      updateRule(usageType, {
+                      updateRule(window.key, {
                         threshold_enabled: !rule.threshold_enabled,
                       })}
                   />
                   <span>At thresholds:</span>
                 </label>
                 <div class="flex flex-wrap gap-1 ml-5 {!rule.threshold_enabled ? 'opacity-50' : ''}">
-                  {#each THRESHOLD_OPTIONS as threshold}
+                  {#each THRESHOLD_OPTIONS as threshold (threshold)}
                     <button
                       type="button"
                       class="btn btn-xs {rule.thresholds.includes(threshold) ? 'btn-primary' : 'btn-ghost'}"
                       disabled={!rule.threshold_enabled}
-                      onclick={() => toggleThreshold(usageType, threshold)}
+                      onclick={() => toggleThreshold(window.key, threshold)}
                     >
                       {threshold}%
                     </button>
@@ -203,19 +196,19 @@
                     class="checkbox checkbox-primary checkbox-xs"
                     checked={rule.time_remaining_enabled}
                     onchange={() =>
-                      updateRule(usageType, {
+                      updateRule(window.key, {
                         time_remaining_enabled: !rule.time_remaining_enabled,
                       })}
                   />
                   <span>Before reset:</span>
                 </label>
                 <div class="flex flex-wrap gap-1 ml-5 {!rule.time_remaining_enabled ? 'opacity-50' : ''}">
-                  {#each getTimeOptionsForUsageType(usageType) as option}
+                  {#each getTimeOptions(window) as option (option.value)}
                     <button
                       type="button"
                       class="btn btn-xs {rule.time_remaining_minutes.includes(option.value) ? 'btn-primary' : 'btn-ghost'}"
                       disabled={!rule.time_remaining_enabled}
-                      onclick={() => toggleTimeOption(usageType, option.value)}
+                      onclick={() => toggleTimeOption(window.key, option.value)}
                     >
                       {option.label}
                     </button>

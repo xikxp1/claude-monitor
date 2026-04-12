@@ -1,51 +1,26 @@
+mod claude;
+mod codex;
+
 use crate::error::AppError;
-use crate::types::UsageData;
-use crate::validation::{validate_org_id, validate_session_token};
-use reqwest::header::{HeaderMap, HeaderValue, COOKIE, USER_AGENT};
+use crate::types::{ProviderKind, ProviderStatus, UsageSnapshot};
 
-pub async fn fetch_usage_from_api(org_id: &str, session_token: &str) -> Result<UsageData, AppError> {
-    // Validate inputs before using in HTTP request
-    validate_org_id(org_id)?;
-    validate_session_token(session_token)?;
-
-    let client = reqwest::Client::new();
-
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        USER_AGENT,
-        HeaderValue::from_static("Claude-Monitor/0.1.0"),
-    );
-    headers.insert(
-        COOKIE,
-        HeaderValue::from_str(&format!("sessionKey={}", session_token))
-            .map_err(|_| AppError::InvalidToken)?,
-    );
-
-    let url = format!("https://claude.ai/api/organizations/{}/usage", org_id);
-
-    let response = client.get(&url).headers(headers).send().await?;
-    let status = response.status().as_u16();
-
-    match status {
-        200 => {
-            let body = response.text().await?;
-            serde_json::from_str::<UsageData>(&body)
-                .map_err(|e| AppError::Server(format!("Failed to parse response: {}", e)))
-        }
-        401 => Err(AppError::InvalidToken),
-        429 => Err(AppError::RateLimited),
-        403 => Err(AppError::Server(
-            "Access denied. Check your organization ID.".to_string(),
-        )),
-        404 => Err(AppError::Server(
-            "Organization not found. Check your organization ID.".to_string(),
-        )),
-        500..=599 => Err(AppError::Server(
-            "Claude is experiencing issues. Please try again later.".to_string(),
-        )),
-        status => Err(AppError::Server(format!(
-            "Unexpected error (HTTP {}). Please try again.",
-            status
-        )))
+pub async fn fetch_usage_for_provider(
+    provider: ProviderKind,
+    org_id: Option<&str>,
+    session_token: Option<&str>,
+) -> Result<UsageSnapshot, AppError> {
+    match provider {
+        ProviderKind::Claude => claude::fetch_usage(org_id, session_token).await,
+        ProviderKind::Codex => codex::fetch_usage().await,
     }
+}
+
+pub fn get_provider_statuses(
+    claude_org_id: Option<&str>,
+    claude_session_token: Option<&str>,
+) -> Vec<ProviderStatus> {
+    vec![
+        claude::get_status(claude_org_id, claude_session_token),
+        codex::get_status(),
+    ]
 }

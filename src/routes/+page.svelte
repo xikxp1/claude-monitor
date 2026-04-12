@@ -6,7 +6,8 @@
   import ToastContainer from "$lib/components/ToastContainer.svelte";
   import { useAnalytics, useSettings, useToast, useUpdates, useUsageData } from "$lib/composables";
   import { initHistoryStorage } from "$lib/historyStorage";
-  import type { UsagePeriod } from "$lib/types";
+  import type { ProviderKind, UsageWindow } from "$lib/types";
+  import { PROVIDER_LABELS, getProviderWindows } from "$lib/types";
   import {
     formatCountdown,
     formatResetTime,
@@ -14,15 +15,14 @@
     getUsageColor,
   } from "$lib/utils";
 
-  // Initialize composables
   const toast = useToast();
   const settings = useSettings({
     onSuccess: (msg) => toast.success(msg),
     onError: (msg) => toast.error(msg),
   });
-  const analytics = useAnalytics();
-
-  // Usage data needs callbacks to interact with settings
+  const analytics = useAnalytics({
+    getActiveProvider: () => settings.activeProvider,
+  });
   const usageData = useUsageData({
     isAutoRefreshEnabled: () => settings.autoRefreshEnabled,
     setLoading: (value) => {
@@ -33,16 +33,21 @@
     },
     isConfigured: () => settings.isConfigured,
   });
-
-  // Updates composable for auto-update functionality
   const updates = useUpdates();
 
+  const chartPalette = ["#3b82f6", "#8b5cf6", "#22c55e", "#f59e0b", "#ef4444", "#14b8a6"];
+
   let initializing = $state(true);
+  let showResetConfirm = $state(false);
   let unlistenCheckUpdates: UnlistenFn | null = null;
+
+  let providerWindows = $derived(
+    getProviderWindows(settings.activeProvider, usageData.usageData),
+  );
 
   onMount(() => {
     initHistoryStorage();
-    initApp();
+    void initApp();
 
     return () => {
       usageData.cleanup();
@@ -51,30 +56,43 @@
   });
 
   async function initApp() {
-    // Set up event listeners for backend events
     await usageData.setupEventListeners();
 
-    // Listen for check-for-updates event from tray menu
     unlistenCheckUpdates = await listen("check-for-updates", async () => {
-      // Open settings to Updates tab and trigger check
       analytics.showAnalytics = false;
       settings.showSettings = true;
       settings.settingsTab = "updates";
       await updates.checkForUpdates();
     });
 
-    // Initialize settings (loads from store and backend)
     await settings.init();
-
     initializing = false;
-
-    // Start countdown timer
     usageData.startCountdown();
 
-    // Check for updates in background after a short delay
+    if (settings.isConfigured) {
+      settings.loading = true;
+      await usageData.refreshNow();
+    }
+
     setTimeout(() => {
-      updates.checkForUpdates();
+      void updates.checkForUpdates();
     }, 3000);
+  }
+
+  async function handleProviderChange(provider: ProviderKind) {
+    if (provider === settings.activeProvider) {
+      return;
+    }
+
+    await settings.setActiveProvider(provider);
+    settings.error = null;
+    usageData.reset();
+    analytics.resetForProviderSwitch();
+
+    if (settings.isConfigured) {
+      settings.loading = true;
+      await usageData.refreshNow();
+    }
   }
 
   function openAnalytics() {
@@ -92,11 +110,10 @@
     usageData.reset();
   }
 
-  let showResetConfirm = $state(false);
-
   async function handleResetAll() {
     await settings.resetAll();
     usageData.reset();
+    analytics.resetForProviderSwitch();
     showResetConfirm = false;
   }
 
@@ -114,32 +131,42 @@
         return "progress-primary";
     }
   }
+
+  function getChartColor(index: number): string {
+    return chartPalette[index % chartPalette.length];
+  }
+
+  function providerInstruction(provider: ProviderKind): string {
+    if (provider === "claude") {
+      return "Enter your Claude organization ID and session token to view usage.";
+    }
+
+    return "Codex monitoring reads your local `~/.codex/auth.json` after you log in with the Codex CLI.";
+  }
 </script>
 
-{#snippet usageCard(title: string, period: UsagePeriod | null)}
-  {#if period}
-    {@const color = getUsageColor(period.utilization)}
-    <div class="card bg-base-200 shadow-sm">
-      <div class="card-body p-3.5">
-        <div class="flex justify-between items-center mb-1.5">
-          <span class="font-semibold text-[0.9rem]">{title}</span>
-          <span class="text-xs text-base-content/60">
-            {period.resets_at
-              ? `Resets in ${formatResetTime(period.resets_at)}`
-              : "Starts when a message is sent"}
-          </span>
-        </div>
-        <progress
-          class="progress {getProgressClass(color)} h-2.5"
-          value={Math.min(period.utilization, 100)}
-          max="100"
-        ></progress>
-        <div class="text-center text-lg font-semibold mt-1.5">
-          {period.utilization.toFixed(0)}%
-        </div>
+{#snippet usageCard(window: UsageWindow)}
+  {@const color = getUsageColor(window.utilization)}
+  <div class="card bg-base-200 shadow-sm">
+    <div class="card-body p-3.5">
+      <div class="flex justify-between items-center mb-1.5 gap-3">
+        <span class="font-semibold text-[0.9rem]">{window.label}</span>
+        <span class="text-xs text-base-content/60 text-right">
+          {window.resetsAt
+            ? `Resets in ${formatResetTime(window.resetsAt)}`
+            : "Starts when activity is detected"}
+        </span>
+      </div>
+      <progress
+        class="progress {getProgressClass(color)} h-2.5"
+        value={Math.min(window.utilization, 100)}
+        max="100"
+      ></progress>
+      <div class="text-center text-lg font-semibold mt-1.5">
+        {window.utilization.toFixed(0)}%
       </div>
     </div>
-  {/if}
+  </div>
 {/snippet}
 
 <main class="h-screen p-3.5 bg-base-100 rounded-xl border border-base-300 shadow-lg flex flex-col overflow-hidden">
@@ -149,11 +176,24 @@
       <span class="text-sm text-base-content/60">Loading...</span>
     </div>
   {:else}
-    <header class="flex justify-between items-center mb-2.5 py-1 border-b border-base-300">
-      <h1 class="m-0 ml-2 mr-3 text-[1.15rem] font-semibold tracking-tight">
-        <span class="text-secondary">Claude</span>
-        <span class="text-neutral font-normal">Monitor</span>
-      </h1>
+    <header class="flex justify-between items-center mb-2.5 py-1 border-b border-base-300 gap-2">
+      <div class="flex items-center gap-3">
+        <h1 class="m-0 ml-2 text-[1.15rem] font-semibold tracking-tight">
+          <span class="text-secondary">{PROVIDER_LABELS[settings.activeProvider]}</span>
+          <span class="text-neutral font-normal"> Monitor</span>
+        </h1>
+        <div class="join">
+          {#each ["claude", "codex"] as provider (provider)}
+            <button
+              class="join-item btn btn-xs {settings.activeProvider === provider ? 'btn-primary' : 'btn-ghost'}"
+              onclick={() => handleProviderChange(provider as ProviderKind)}
+            >
+              {PROVIDER_LABELS[provider as ProviderKind]}
+            </button>
+          {/each}
+        </div>
+      </div>
+
       {#if settings.isConfigured}
         <div class="flex gap-1.5 mr-2">
           <button
@@ -188,8 +228,8 @@
         {#if settings.isConfigured}
           <div class="join w-full mb-4">
             <button
-              class="join-item btn btn-xs flex-1 {settings.settingsTab === 'credentials' ? 'btn-primary' : 'btn-ghost'}"
-              onclick={() => (settings.settingsTab = "credentials")}
+              class="join-item btn btn-xs flex-1 {settings.settingsTab === 'account' ? 'btn-primary' : 'btn-ghost'}"
+              onclick={() => (settings.settingsTab = "account")}
             >
               Account
             </button>
@@ -214,78 +254,126 @@
           </div>
         {/if}
 
-        {#if settings.settingsTab === "credentials" || !settings.isConfigured}
+        {#if settings.settingsTab === "account" || !settings.isConfigured}
+          <div class="join w-full mb-4">
+            {#each ["claude", "codex"] as provider (provider)}
+              <button
+                class="join-item btn btn-sm flex-1 {settings.activeProvider === provider ? 'btn-primary' : 'btn-ghost'}"
+                onclick={() => handleProviderChange(provider as ProviderKind)}
+              >
+                {PROVIDER_LABELS[provider as ProviderKind]}
+              </button>
+            {/each}
+          </div>
+
           <p class="text-sm text-base-content/60 mb-4">
-            Enter your Claude organization ID and session token to view usage.
+            {providerInstruction(settings.activeProvider)}
           </p>
 
-          <form
-            class="flex flex-col gap-3"
-            onsubmit={(e) => {
-              e.preventDefault();
-              settings.saveCredentials();
-            }}
-          >
-            <label class="form-control w-full">
-              <div class="label">
-                <span class="label-text font-medium">Organization ID</span>
-              </div>
-              <input
-                type="text"
-                class="input input-bordered w-full"
-                bind:value={settings.orgIdInput}
-                placeholder="uuid-format-org-id"
-                required
-              />
-            </label>
+          {#if settings.activeProvider === "claude"}
+            <form
+              class="flex flex-col gap-3"
+              onsubmit={(event) => {
+                event.preventDefault();
+                void settings.saveCredentials();
+              }}
+            >
+              <label class="form-control w-full">
+                <div class="label">
+                  <span class="label-text font-medium">Organization ID</span>
+                </div>
+                <input
+                  type="text"
+                  class="input input-bordered w-full"
+                  bind:value={settings.orgIdInput}
+                  placeholder="uuid-format-org-id"
+                  required
+                />
+              </label>
 
-            <label class="form-control w-full">
-              <div class="label">
-                <span class="label-text font-medium">Session Token</span>
-              </div>
-              <input
-                type="password"
-                class="input input-bordered w-full"
-                bind:value={settings.tokenInput}
-                placeholder="Your session token"
-                required
-              />
-            </label>
+              <label class="form-control w-full">
+                <div class="label">
+                  <span class="label-text font-medium">Session Token</span>
+                </div>
+                <input
+                  type="password"
+                  class="input input-bordered w-full"
+                  bind:value={settings.tokenInput}
+                  placeholder="Your session token"
+                  required
+                />
+              </label>
 
-            <div class="flex gap-2 mt-2">
-              <button type="submit" class="btn btn-primary" disabled={settings.loading}>
-                {settings.loading ? "Saving..." : "Save"}
-              </button>
-              {#if settings.isConfigured}
-                <button
-                  type="button"
-                  class="btn btn-ghost"
-                  onclick={handleLogout}
-                >
-                  Log Out
+              <div class="flex gap-2 mt-2">
+                <button type="submit" class="btn btn-primary" disabled={settings.loading}>
+                  {settings.loading ? "Saving..." : "Save"}
                 </button>
-              {/if}
-            </div>
-          </form>
+                {#if settings.providerStatuses.claude.configured}
+                  <button type="button" class="btn btn-ghost" onclick={handleLogout}>
+                    Log Out
+                  </button>
+                {/if}
+              </div>
+            </form>
 
-          <div class="collapse collapse-arrow bg-base-200 mt-3 min-h-0">
-            <input type="checkbox" />
-            <div class="collapse-title text-xs font-medium py-2 min-h-0">
-              How to get your session token
+            <div class="collapse collapse-arrow bg-base-200 mt-3 min-h-0">
+              <input type="checkbox" />
+              <div class="collapse-title text-xs font-medium py-2 min-h-0">
+                How to get your session token
+              </div>
+              <div class="collapse-content text-xs text-base-content/70 !pb-2">
+                <ol class="list-decimal pl-4 space-y-0.5">
+                  <li>Go to <a href="https://claude.ai" target="_blank" class="link link-primary">claude.ai</a> and log in</li>
+                  <li>Open browser DevTools (F12)</li>
+                  <li>Go to Application &gt; Cookies &gt; claude.ai</li>
+                  <li>Find "sessionKey" cookie and copy its value</li>
+                </ol>
+              </div>
             </div>
-            <div class="collapse-content text-xs text-base-content/70 !pb-2">
-              <ol class="list-decimal pl-4 space-y-0.5">
-                <li>Go to <a href="https://claude.ai" target="_blank" class="link link-primary">claude.ai</a> and log in</li>
-                <li>Open browser DevTools (F12)</li>
-                <li>Go to Application &gt; Cookies &gt; claude.ai</li>
-                <li>Find "sessionKey" cookie and copy its value</li>
-              </ol>
+          {:else}
+            <div class="card bg-base-200 shadow-sm">
+              <div class="card-body p-4 gap-3">
+                <div class="flex items-center justify-between gap-2">
+                  <div>
+                    <h3 class="font-semibold">Codex CLI Status</h3>
+                    <p class="text-xs text-base-content/60">
+                      Source: {settings.activeProviderStatus.source}
+                    </p>
+                  </div>
+                  <span class="badge {settings.activeProviderStatus.configured ? 'badge-success' : 'badge-warning'}">
+                    {settings.activeProviderStatus.configured ? "Ready" : "Needs Login"}
+                  </span>
+                </div>
+                <p class="text-sm text-base-content/70">
+                  {settings.activeProviderStatus.message ?? "Local Codex auth detected. Refresh to load usage."}
+                </p>
+                <div class="flex gap-2">
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    onclick={() => settings.refreshProviderStatuses()}
+                  >
+                    Recheck Auth
+                  </button>
+                  {#if settings.activeProviderStatus.configured}
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm"
+                      onclick={() => usageData.refreshNow()}
+                    >
+                      Refresh Now
+                    </button>
+                  {/if}
+                </div>
+              </div>
             </div>
-          </div>
+          {/if}
         {:else if settings.settingsTab === "notifications"}
           <div class="mt-2">
             <NotificationSettingsComponent
               settings={settings.notificationSettings}
+              provider={settings.activeProvider}
+              windows={providerWindows}
               onchange={settings.saveNotifications}
             />
           </div>
@@ -296,9 +384,9 @@
                 type="checkbox"
                 class="checkbox checkbox-primary checkbox-sm"
                 checked={settings.autoRefreshEnabled}
-                onchange={(e) =>
+                onchange={(event) =>
                   settings.saveGeneral(
-                    e.currentTarget.checked,
+                    event.currentTarget.checked,
                     settings.refreshIntervalMinutes,
                   )}
               />
@@ -311,10 +399,10 @@
                 <select
                   class="select select-bordered select-sm"
                   value={settings.refreshIntervalMinutes}
-                  onchange={(e) =>
+                  onchange={(event) =>
                     settings.saveGeneral(
                       settings.autoRefreshEnabled,
-                      Number.parseInt(e.currentTarget.value, 10),
+                      Number.parseInt(event.currentTarget.value, 10),
                     )}
                 >
                   <option value={1}>1 minute</option>
@@ -332,8 +420,8 @@
                 type="checkbox"
                 class="checkbox checkbox-primary checkbox-sm"
                 checked={settings.hourlyRefreshEnabled}
-                onchange={(e) =>
-                  settings.toggleHourlyRefresh(e.currentTarget.checked)}
+                onchange={(event) =>
+                  settings.toggleHourlyRefresh(event.currentTarget.checked)}
               />
               <div class="flex flex-col">
                 <span class="font-medium">Refresh when hour starts</span>
@@ -346,8 +434,8 @@
                 type="checkbox"
                 class="checkbox checkbox-primary checkbox-sm"
                 checked={settings.autostartEnabled}
-                onchange={(e) =>
-                  settings.toggleAutostart(e.currentTarget.checked)}
+                onchange={(event) =>
+                  settings.toggleAutostart(event.currentTarget.checked)}
               />
               <span class="font-medium">Start at login</span>
             </label>
@@ -357,9 +445,9 @@
               <select
                 class="select select-bordered select-sm"
                 value={settings.dataRetentionDays}
-                onchange={(e) =>
+                onchange={(event) =>
                   settings.saveRetention(
-                    Number.parseInt(e.currentTarget.value, 10),
+                    Number.parseInt(event.currentTarget.value, 10),
                   )}
               >
                 <option value={7}>7 days</option>
@@ -383,14 +471,10 @@
             {:else}
               <div class="bg-error/10 rounded-lg p-3 flex flex-col gap-2">
                 <p class="text-sm">
-                  This will clear your credentials and reset all settings to defaults.
+                  This will clear your Claude credentials and reset all settings to defaults.
                 </p>
                 <div class="flex gap-2">
-                  <button
-                    type="button"
-                    class="btn btn-error btn-sm"
-                    onclick={handleResetAll}
-                  >
+                  <button type="button" class="btn btn-error btn-sm" onclick={handleResetAll}>
                     Confirm Reset
                   </button>
                   <button
@@ -445,10 +529,7 @@
                 {#if updates.availableUpdate}
                   <p class="text-sm mb-3">Version {updates.availableUpdate.version} is available.</p>
                 {/if}
-                <button
-                  class="btn btn-primary btn-sm"
-                  onclick={() => updates.downloadAndInstall()}
-                >
+                <button class="btn btn-primary btn-sm" onclick={() => updates.downloadAndInstall()}>
                   Download and Install
                 </button>
               </div>
@@ -480,10 +561,7 @@
                   <span class="font-medium">Update Ready</span>
                 </div>
                 <p class="text-sm mb-3">The update has been downloaded and is ready to install.</p>
-                <button
-                  class="btn btn-success btn-sm"
-                  onclick={() => updates.restartApp()}
-                >
+                <button class="btn btn-success btn-sm" onclick={() => updates.restartApp()}>
                   Restart Now
                 </button>
               </div>
@@ -494,10 +572,7 @@
                 </svg>
                 <span>{updates.error}</span>
               </div>
-              <button
-                class="btn btn-ghost btn-sm"
-                onclick={() => updates.reset()}
-              >
+              <button class="btn btn-ghost btn-sm" onclick={() => updates.reset()}>
                 Try Again
               </button>
             {/if}
@@ -506,62 +581,40 @@
       </section>
     {:else if analytics.showAnalytics}
       <section class="flex-1 overflow-y-auto flex flex-col gap-4 px-2">
-        <h2 class="text-lg font-semibold">Usage Analytics</h2>
+        <h2 class="text-lg font-semibold">{PROVIDER_LABELS[settings.activeProvider]} Analytics</h2>
 
-        <div class="flex justify-between items-center gap-1">
+        <div class="flex justify-between items-center gap-2">
           <div class="join">
-            <button
-              class="join-item btn btn-sm {analytics.timeRange === '1h' ? 'btn-primary' : 'btn-ghost'}"
-              onclick={() => analytics.changeTimeRange("1h")}>1h</button
-            >
-            <button
-              class="join-item btn btn-sm {analytics.timeRange === '6h' ? 'btn-primary' : 'btn-ghost'}"
-              onclick={() => analytics.changeTimeRange("6h")}>6h</button
-            >
-            <button
-              class="join-item btn btn-sm {analytics.timeRange === '24h' ? 'btn-primary' : 'btn-ghost'}"
-              onclick={() => analytics.changeTimeRange("24h")}>24h</button
-            >
-            <button
-              class="join-item btn btn-sm {analytics.timeRange === '7d' ? 'btn-primary' : 'btn-ghost'}"
-              onclick={() => analytics.changeTimeRange("7d")}>7d</button
-            >
-            <button
-              class="join-item btn btn-sm {analytics.timeRange === '30d' ? 'btn-primary' : 'btn-ghost'}"
-              onclick={() => analytics.changeTimeRange("30d")}>30d</button
-            >
+            {#each ["1h", "6h", "24h", "7d", "30d"] as range (range)}
+              <button
+                class="join-item btn btn-sm {analytics.timeRange === range ? 'btn-primary' : 'btn-ghost'}"
+                onclick={() => analytics.changeTimeRange(range as "1h" | "6h" | "24h" | "7d" | "30d")}
+              >
+                {range}
+              </button>
+            {/each}
           </div>
 
-          <div class="flex gap-1 mr-1">
-            <label class="flex items-center gap-0.5 cursor-pointer text-xs">
-              <input type="checkbox" class="checkbox checkbox-xs" style="--chkbg: #3b82f6; --chkfg: white;" bind:checked={analytics.showFiveHour} />
-              <span class="text-info font-medium">5h</span>
-            </label>
-            <label class="flex items-center gap-0.5 cursor-pointer text-xs">
-              <input type="checkbox" class="checkbox checkbox-xs" style="--chkbg: #8b5cf6; --chkfg: white;" bind:checked={analytics.showSevenDay} />
-              <span class="text-[#8b5cf6] font-medium">7d</span>
-            </label>
-            <label class="flex items-center gap-0.5 cursor-pointer text-xs">
-              <input type="checkbox" class="checkbox checkbox-xs" style="--chkbg: #22c55e; --chkfg: white;" bind:checked={analytics.showSonnet} />
-              <span class="text-success font-medium">Sonnet</span>
-            </label>
-            <label class="flex items-center gap-0.5 cursor-pointer text-xs">
-              <input type="checkbox" class="checkbox checkbox-xs" style="--chkbg: #f59e0b; --chkfg: white;" bind:checked={analytics.showOpus} />
-              <span class="text-[#f59e0b] font-medium">Opus</span>
-            </label>
+          <div class="flex flex-wrap gap-2 justify-end">
+            {#each analytics.availableWindows as window, index (window.key)}
+              <label class="flex items-center gap-1 cursor-pointer text-xs">
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-xs"
+                  style="--chkbg: {getChartColor(index)}; --chkfg: white;"
+                  checked={analytics.filters[window.key] !== false}
+                  onchange={(event) =>
+                    analytics.setWindowFilter(window.key, event.currentTarget.checked)}
+                />
+                <span style="color: {getChartColor(index)}" class="font-medium">{window.label}</span>
+              </label>
+            {/each}
           </div>
         </div>
 
         <div class="card bg-base-200 shadow-sm">
           <div class="card-body p-3">
-            <UsageLineChart
-              data={analytics.history}
-              height={220}
-              showFiveHour={analytics.showFiveHour}
-              showSevenDay={analytics.showSevenDay}
-              showSonnet={analytics.showSonnet}
-              showOpus={analytics.showOpus}
-            />
+            <UsageLineChart data={analytics.history} filters={analytics.filters} height={220} />
           </div>
         </div>
       </section>
@@ -605,17 +658,29 @@
 
         {#if settings.loading && !usageData.usageData}
           <div class="text-center text-sm text-base-content/60 py-10">Loading usage data...</div>
-        {:else if settings.isSessionExpired}
+        {:else if settings.isAuthExpired}
           <div class="card bg-base-200 shadow-sm">
             <div class="card-body p-4 items-center text-center">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-warning mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
-              <h3 class="font-semibold text-base">Session Expired</h3>
-              <p class="text-sm text-base-content/70 mb-2">Your Claude session has expired. Please update your session token to continue.</p>
-              <button class="btn btn-primary btn-sm" onclick={() => settings.openCredentials()}>
-                Update Token
-              </button>
+              <h3 class="font-semibold text-base">Authentication Needed</h3>
+              <p class="text-sm text-base-content/70 mb-2">
+                {#if settings.activeProvider === "claude"}
+                  Your Claude session has expired. Update your session token to continue.
+                {:else}
+                  Your Codex login appears to be expired. Run `codex login` and then recheck auth.
+                {/if}
+              </p>
+              {#if settings.activeProvider === "claude"}
+                <button class="btn btn-primary btn-sm" onclick={() => settings.openCredentials()}>
+                  Update Token
+                </button>
+              {:else}
+                <button class="btn btn-primary btn-sm" onclick={() => settings.refreshProviderStatuses()}>
+                  Recheck Codex Auth
+                </button>
+              {/if}
             </div>
           </div>
         {:else}
@@ -625,15 +690,17 @@
               <button class="btn btn-sm btn-ghost" onclick={() => usageData.refreshNow()}>Retry</button>
             </div>
           {/if}
-          {#if usageData.usageData}
+
+          {#if usageData.usageData && usageData.usageData.windows.length > 0}
             <div class="flex flex-col gap-2.5">
-              {@render usageCard("5 Hour", usageData.usageData.five_hour)}
-              {@render usageCard("7 Day", usageData.usageData.seven_day)}
-              {@render usageCard("Sonnet (7 Day)", usageData.usageData.seven_day_sonnet)}
-              {@render usageCard("Opus (7 Day)", usageData.usageData.seven_day_opus)}
+              {#each usageData.usageData.windows as window (window.key)}
+                {@render usageCard(window)}
+              {/each}
             </div>
           {:else}
-            <div class="text-center text-sm text-base-content/60 py-10">No usage data available</div>
+            <div class="text-center text-sm text-base-content/60 py-10">
+              No usage data available for {PROVIDER_LABELS[settings.activeProvider]}.
+            </div>
           {/if}
         {/if}
       </section>

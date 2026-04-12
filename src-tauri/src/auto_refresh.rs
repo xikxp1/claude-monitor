@@ -1,11 +1,11 @@
-use crate::api::fetch_usage_from_api;
+use crate::api::fetch_usage_for_provider;
 use crate::error::AppError;
 use crate::history::save_usage_snapshot;
 use crate::notifications::{process_notifications, reset_notification_state_if_needed};
 use crate::tray::update_tray_tooltip;
 use crate::types::{AppState, UsageErrorEvent, UsageUpdateEvent};
 use chrono::{Timelike, Utc};
-use rand::Rng;
+use rand::RngExt;
 use std::sync::Arc;
 use tauri::Emitter;
 
@@ -125,20 +125,30 @@ pub async fn do_fetch_and_emit(
     interval_minutes: u32,
 ) -> FetchOutput {
     let config = state.config.lock().await;
+    let provider = config.active_provider;
     let org_id = config.organization_id.clone();
     let session_token = config.session_token.clone();
     let enabled = config.enabled;
     let hourly_refresh_enabled = config.hourly_refresh_enabled;
     drop(config);
 
-    let (Some(org_id), Some(session_token)) = (org_id, session_token) else {
+    let has_provider_config = match provider {
+        crate::types::ProviderKind::Claude => org_id.is_some() && session_token.is_some(),
+        crate::types::ProviderKind::Codex => true,
+    };
+
+    if !has_provider_config {
+        log::warn!(
+            "Skipping usage refresh for provider={} because configuration is incomplete",
+            provider.as_str()
+        );
         return FetchOutput {
             result: FetchResult::NoCredentials,
             next_refresh_at: None,
         };
-    };
+    }
 
-    match fetch_usage_from_api(&org_id, &session_token).await {
+    match fetch_usage_for_provider(provider, org_id.as_deref(), session_token.as_deref()).await {
         Ok(usage) => {
             // Update tray tooltip
             update_tray_tooltip(app, Some(&usage));
@@ -187,6 +197,19 @@ pub async fn do_fetch_and_emit(
         }
         Err(e) => {
             let is_rate_limited = matches!(e, AppError::RateLimited);
+            if is_rate_limited {
+                log::warn!(
+                    "Usage refresh failed for provider={} due to rate limiting: {}",
+                    provider.as_str(),
+                    e
+                );
+            } else {
+                log::error!(
+                    "Usage refresh failed for provider={}: {}",
+                    provider.as_str(),
+                    e
+                );
+            }
 
             // Calculate next refresh time even on error (for retry countdown)
             let now_ms = Utc::now().timestamp_millis();
@@ -197,6 +220,7 @@ pub async fn do_fetch_and_emit(
             let _ = app.emit(
                 "usage-error",
                 UsageErrorEvent {
+                    provider,
                     error: e.to_string(),
                 },
             );
@@ -222,7 +246,12 @@ pub async fn auto_refresh_loop(app: tauri::AppHandle, state: Arc<AppState>) {
         let config = state.config.lock().await;
         let enabled = config.enabled;
         let interval_minutes = config.interval_minutes;
-        let has_credentials = config.organization_id.is_some() && config.session_token.is_some();
+        let has_credentials = match config.active_provider {
+            crate::types::ProviderKind::Claude => {
+                config.organization_id.is_some() && config.session_token.is_some()
+            }
+            crate::types::ProviderKind::Codex => true,
+        };
         drop(config);
 
         if !should_refresh(enabled, has_credentials) {

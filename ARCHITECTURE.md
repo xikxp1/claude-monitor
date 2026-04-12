@@ -12,26 +12,35 @@
 - Manages system tray and window lifecycle
 - Stores configuration securely
 
-# API Integration
+# Provider Integration
 
-The app fetches from Claude's usage API:
-```
-GET https://claude.ai/api/organizations/{org_id}/usage
+The app now supports one active provider at a time:
+- `Claude` via `GET https://claude.ai/api/organizations/{org_id}/usage`
+- `Codex` via `GET https://chatgpt.com/backend-api/wham/usage`
+
+Each provider is mapped into the same backend model:
+```rust
+UsageSnapshot {
+  provider: ProviderKind,
+  windows: Vec<UsageWindow>,
+  account_email: Option<String>,
+  plan_type: Option<String>,
+}
 ```
 
-Authentication requires a session cookie from claude.ai. The backend handles:
-1. Secure storage of credentials
-2. HTTP requests with proper headers
-3. Parsing and caching responses
+This keeps tray updates, notifications, analytics, and the dashboard provider-agnostic.
 
 # Configuration Storage
 
 User settings stored via `tauri-plugin-store`:
-- Organization ID
+- Active provider
 - Refresh interval
+- Notification rules
 - Window preferences
 
 Sensitive data (session token) stored in OS keychain via `keyring` crate.
+
+Codex credentials are not copied into app storage in v1; the app reads the local Codex auth file (`~/.codex/auth.json` or `$CODEX_HOME/auth.json`) on demand.
 
 # Current File Structure
 
@@ -61,17 +70,20 @@ claude-monitor/
 │   └── app.html
 ├── src-tauri/
 │   ├── src/
-│   │   ├── api.rs                            # HTTP client (fetch_usage_from_api)
+│   │   ├── api.rs                            # Provider dispatcher
+│   │   ├── api/                             # Provider-specific fetchers
+│   │   │   ├── claude.rs                    # Claude web usage API
+│   │   │   └── codex.rs                     # Codex auth.json + WHAM usage API
 │   │   ├── auto_refresh.rs                   # Background refresh loop
 │   │   ├── commands.rs                       # Tauri commands
 │   │   ├── error.rs                          # AppError enum
-│   │   ├── history.rs                        # SQLite history storage (rusqlite)
+│   │   ├── history.rs                        # SQLite history storage with normalized provider/window rows
 │   │   ├── lib.rs                            # Module re-exports and app entry point
 │   │   ├── main.rs                           # Entry point
 │   │   ├── credentials.rs                    # OS keychain storage (keyring)
-│   │   ├── notifications.rs                  # Notification processing and firing
+│   │   ├── notifications.rs                  # Provider/window keyed notification processing
 │   │   ├── tray.rs                           # System tray creation and tooltip
-│   │   ├── types.rs                          # Data structures
+│   │   ├── types.rs                          # Shared provider, usage, and notification data structures
 │   │   ├── validation.rs                     # Input validation
 │   │   └── wake_detection.rs                 # macOS wake detection (objc2)
 │   ├── capabilities/
@@ -147,16 +159,22 @@ invoke("refresh_now")         →   Triggers immediate fetch, resets timer
 - Settings persisted in `settings.json` via `tauri-plugin-store`
 - Permissions: `notification:default`, `notification:allow-notify`, `notification:allow-is-permission-granted`, `notification:allow-request-permission`
 
-## API Response Format
-The Claude usage API returns:
-```json
-{
-  "five_hour": { "utilization": 9.0, "resets_at": "2025-01-12T..." },
-  "seven_day": { "utilization": 5.0, "resets_at": "2025-01-15T..." },
-  "seven_day_sonnet": { "utilization": 3.0, "resets_at": "..." },
-  "seven_day_opus": { "utilization": 0.0, "resets_at": "..." }
-}
-```
+## Provider Mapping
+
+### Claude
+- Uses stored `organization_id` + `sessionKey`
+- Maps Claude windows directly into generic windows:
+  - `five_hour`
+  - `seven_day`
+  - `seven_day_sonnet`
+  - `seven_day_opus`
+
+### Codex
+- Reads `tokens.access_token` from `~/.codex/auth.json` or `$CODEX_HOME/auth.json`
+- Calls `GET https://chatgpt.com/backend-api/wham/usage`
+- Maps:
+  - `rate_limit.primary_window` → generic `primary`
+  - `rate_limit.secondary_window` → generic `secondary`
 
 ## Platform-Specific Behavior
 - **All platforms**: Uses positioner plugin for tray-relative window positioning, auto-hides on focus loss, always-on-top window
@@ -195,16 +213,14 @@ The app automatically refreshes usage data when the system wakes from sleep:
 - No npm package needed - frontend only calls Tauri commands
 
 ## Charts & Analytics
-- **Charting Library**: Layercake recommended for Svelte-native experience
-  - Composable, uses Svelte's reactivity
-  - SVG-based, lightweight (~12KB)
-  - Supports line, area, bar, scatter, and custom visualizations
-  - Built-in responsive scaling
 - **Data Storage**: SQLite via `rusqlite` (Rust backend)
-  - Backend saves snapshots automatically after each fetch
-  - Frontend queries via Tauri commands (`get_usage_history_by_range`, `get_usage_stats`)
-  - Efficient date range queries with indexed timestamp column
-  - Database file: `usage_history.db` in app data directory
+  - Backend saves one row per provider window to `usage_history_v2`
+  - Schema: `provider`, `timestamp`, `window_key`, `label`, `utilization`, `resets_at`
+  - Frontend queries by provider via Tauri commands
+  - Legacy Claude snapshots are backfilled from the old wide table on startup
+- **Frontend Rendering**:
+  - Charts build dynamic series from `window_key`
+  - Filter toggles are generated from returned history rows instead of hard-coded metrics
 - **Tauri Commands**:
   - `get_usage_history_by_range(range)` - Get history for time preset ("1h", "6h", "24h", "7d", "30d")
   - `get_usage_stats(range)` - Get statistics (current, change, velocity) for time range

@@ -6,9 +6,9 @@ use thiserror::Error;
 pub enum AppError {
     #[error("Network error. Check your internet connection.")]
     Http(#[from] reqwest::Error),
-    #[error("Session expired. Please update your session token in Settings.")]
+    #[error("Authentication expired. Refresh your provider login and try again.")]
     InvalidToken,
-    #[error("Rate limited by Claude. Please wait a moment and try again.")]
+    #[error("Rate limited. Please wait a moment and try again.")]
     RateLimited,
     #[error("{0}")]
     Server(String),
@@ -30,10 +30,7 @@ impl Serialize for AppError {
 // Implement Type manually since reqwest::Error doesn't implement Type.
 // The error is serialized as a string, so we export it as string type.
 impl Type for AppError {
-    fn inline(
-        _type_map: &mut specta::TypeCollection,
-        _generics: specta::Generics,
-    ) -> specta::datatype::DataType {
-        specta::datatype::DataType::Primitive(specta::datatype::PrimitiveType::String)
+    fn definition(_types: &mut specta::Types) -> specta::datatype::DataType {
+        specta::datatype::DataType::Primitive(specta::datatype::Primitive::str)
     }
 }

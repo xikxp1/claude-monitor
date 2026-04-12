@@ -218,6 +218,29 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
 - [x] Design and implement database schema in `history.rs`
 - [x] Create Rust functions for storage:
   - `save_usage_snapshot()` - Store current usage with timestamp (called in auto_refresh)
+
+### Phase 9: Multi-Provider Monitoring
+
+#### 9.1 Provider Abstraction
+- [x] Replace fixed Claude usage fields with provider-agnostic windows
+- [x] Add `ProviderKind` (`claude` | `codex`) and `UsageSnapshot`
+- [x] Add provider-aware tray/event payloads and active provider switching
+
+#### 9.2 OpenAI Codex Support
+- [x] Add Codex status detection from `~/.codex/auth.json` / `$CODEX_HOME/auth.json`
+- [x] Add Codex usage fetch via `GET https://chatgpt.com/backend-api/wham/usage`
+- [x] Map Codex primary/secondary windows into generic usage windows
+
+#### 9.3 Dynamic Notifications & Analytics
+- [x] Replace fixed notification state/settings with provider + window keyed rules
+- [x] Normalize usage history into `usage_history_v2` (`provider`, `window_key`, `label`, `utilization`, `resets_at`)
+- [x] Backfill legacy Claude history into the normalized table
+- [x] Make dashboard cards, notification UI, and analytics charts render dynamic windows
+
+#### 9.4 Provider Settings UX
+- [x] Add provider switcher in setup/header/settings
+- [x] Keep Claude credential entry in-app
+- [x] Show Codex readiness from local auth with actionable guidance (`codex login`)
   - `get_usage_history_by_range()` - Query by preset time range
   - `get_usage_stats()` - Get statistics (current, change, velocity) for time range
   - `cleanup_old_data()` - Remove data older than retention period

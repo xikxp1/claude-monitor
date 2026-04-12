@@ -1,4 +1,4 @@
-use crate::types::UsageData;
+use crate::types::UsageSnapshot;
 use tauri::{
     menu::{Menu, MenuEvent, MenuItemBuilder, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -9,27 +9,25 @@ use tauri::Manager;
 #[cfg(not(target_os = "macos"))]
 use tauri_plugin_positioner::{on_tray_event, Position, WindowExt};
 
-pub fn update_tray_tooltip<R: Runtime>(app: &tauri::AppHandle<R>, usage: Option<&UsageData>) {
+pub fn update_tray_tooltip<R: Runtime>(app: &tauri::AppHandle<R>, usage: Option<&UsageSnapshot>) {
     if let Some(tray) = app.tray_by_id("main") {
         let tooltip = match usage {
-            Some(data) => {
-                let mut parts = Vec::new();
-                if let Some(ref period) = data.five_hour {
-                    parts.push(format!("5h: {:.0}%", period.utilization));
-                }
-                if let Some(ref period) = data.seven_day {
-                    parts.push(format!("7d: {:.0}%", period.utilization));
-                }
-                if let Some(ref period) = data.seven_day_sonnet {
-                    parts.push(format!("Sonnet: {:.0}%", period.utilization));
-                }
-                if let Some(ref period) = data.seven_day_opus {
-                    parts.push(format!("Opus: {:.0}%", period.utilization));
-                }
+            Some(snapshot) => {
+                let parts = snapshot
+                    .windows
+                    .iter()
+                    .map(|window| format!("{}: {:.0}%", window.label, window.utilization))
+                    .collect::<Vec<_>>();
+
+                let provider_name = match snapshot.provider {
+                    crate::types::ProviderKind::Claude => "Claude Monitor",
+                    crate::types::ProviderKind::Codex => "Codex Monitor",
+                };
+
                 if parts.is_empty() {
-                    "Claude Monitor".to_string()
+                    provider_name.to_string()
                 } else {
-                    format!("Claude Monitor\n{}", parts.join(" | "))
+                    format!("{provider_name}\n{}", parts.join(" | "))
                 }
             }
             None => "Claude Monitor".to_string(),

@@ -1,107 +1,89 @@
 <script lang="ts">
-  import { scaleLinear, scaleTime } from "d3-scale";
-  import type { UsageHistoryRecord } from "$lib/historyStorage";
+  import type { UsageHistoryPoint } from "$lib/historyStorage";
 
   interface Props {
-    data: UsageHistoryRecord[];
-    showFiveHour?: boolean;
-    showSevenDay?: boolean;
-    showSonnet?: boolean;
-    showOpus?: boolean;
+    data: UsageHistoryPoint[];
+    filters: Record<string, boolean>;
     height?: number;
   }
 
-  let {
-    data,
-    showFiveHour = true,
-    showSevenDay = true,
-    showSonnet = true,
-    showOpus = true,
-    height = 200,
-  }: Props = $props();
+  let { data, filters, height = 200 }: Props = $props();
 
-  // Colors for each usage type
-  const colors = {
-    fiveHour: "#3b82f6",
-    sevenDay: "#8b5cf6",
-    sonnet: "#22c55e",
-    opus: "#f59e0b",
-  };
-
-  // Chart dimensions
+  const palette = ["#3b82f6", "#8b5cf6", "#22c55e", "#f59e0b", "#ef4444", "#14b8a6"];
   const padding = { top: 10, right: 32, bottom: 30, left: 40 };
   let containerWidth = $state(300);
 
-  let innerWidth = $derived(
-    Math.max(0, containerWidth - padding.left - padding.right),
-  );
-  let innerHeight = $derived(
-    Math.max(0, height - padding.top - padding.bottom),
-  );
+  let innerWidth = $derived(Math.max(0, containerWidth - padding.left - padding.right));
+  let innerHeight = $derived(Math.max(0, height - padding.top - padding.bottom));
 
-  // Transform data for chart
-  interface DataPoint {
-    timestamp: Date;
-    value: number;
-  }
+  let windowMeta = $derived.by(() => {
+    const unique: Record<string, string> = {};
+    for (const point of data) {
+      if (!(point.windowKey in unique)) {
+        unique[point.windowKey] = point.label;
+      }
+    }
+    return Object.entries(unique).map(([key, label], index) => ({
+      key,
+      label,
+      color: palette[index % palette.length],
+    }));
+  });
 
-  function getDataPoints(
-    records: UsageHistoryRecord[],
-    field: keyof UsageHistoryRecord,
-  ): DataPoint[] {
-    return records
-      .filter((r) => r[field] !== null)
-      .map((r) => ({
-        timestamp: new Date(r.timestamp),
-        value: r[field] as number,
+  function getPoints(windowKey: string) {
+    return data
+      .filter((point) => point.windowKey === windowKey)
+      .map((point) => ({
+        timestamp: new Date(point.timestamp),
+        value: point.utilization,
       }));
   }
 
-  let fiveHourData = $derived(getDataPoints(data, "five_hour_utilization"));
-  let sevenDayData = $derived(getDataPoints(data, "seven_day_utilization"));
-  let sonnetData = $derived(getDataPoints(data, "sonnet_utilization"));
-  let opusData = $derived(getDataPoints(data, "opus_utilization"));
-
-  // Scales
   let xDomain = $derived.by(() => {
     if (data.length === 0) {
-      return [new Date(Date.now() - 3600000), new Date()];
+      return [Date.now() - 3_600_000, Date.now()];
     }
-    const timestamps = data.map((d) => new Date(d.timestamp));
-    return [
-      new Date(Math.min(...timestamps.map((d) => d.getTime()))),
-      new Date(Math.max(...timestamps.map((d) => d.getTime()))),
-    ];
+    const timestamps = data.map((point) => new Date(point.timestamp).getTime());
+    return [Math.min(...timestamps), Math.max(...timestamps)];
   });
 
-  let xScale = $derived(scaleTime().domain(xDomain).range([0, innerWidth]));
+  function scaleX(timestamp: Date) {
+    const [start, end] = xDomain;
+    if (start === end || innerWidth === 0) {
+      return 0;
+    }
+    return ((timestamp.getTime() - start) / (end - start)) * innerWidth;
+  }
 
-  let yScale = $derived(scaleLinear().domain([0, 100]).range([innerHeight, 0]));
+  function scaleY(value: number) {
+    if (innerHeight === 0) {
+      return 0;
+    }
+    return innerHeight - (value / 100) * innerHeight;
+  }
 
-  // Generate path for a dataset
-  function generatePath(points: DataPoint[]): string {
-    if (points.length === 0) return "";
+  function generatePath(windowKey: string) {
+    const points = getPoints(windowKey);
+    if (points.length === 0) {
+      return "";
+    }
     return points
-      .map((p, i) => {
-        const x = xScale(p.timestamp);
-        const y = yScale(p.value);
-        return `${i === 0 ? "M" : "L"}${x},${y}`;
+      .map((point, index) => {
+        const x = scaleX(point.timestamp);
+        const y = scaleY(point.value);
+        return `${index === 0 ? "M" : "L"}${x},${y}`;
       })
       .join("");
   }
 
-  let fiveHourPath = $derived(generatePath(fiveHourData));
-  let sevenDayPath = $derived(generatePath(sevenDayData));
-  let sonnetPath = $derived(generatePath(sonnetData));
-  let opusPath = $derived(generatePath(opusData));
+  let yTicks = $derived([0, 25, 50, 75, 100]);
+  let xTicks = $derived.by(() => {
+    const [start, end] = xDomain;
+    const segments = 4;
+    const step = (end - start) / segments;
+    return Array.from({ length: segments + 1 }, (_, index) => new Date(start + step * index));
+  });
 
-  // Y axis ticks
-  let yTicks = $derived(yScale.ticks(5));
-
-  // X axis ticks
-  let xTicks = $derived(xScale.ticks(4));
-
-  // Format time
   function formatTime(date: Date): string {
     const hours = date.getHours().toString().padStart(2, "0");
     const minutes = date.getMinutes().toString().padStart(2, "0");
@@ -109,13 +91,6 @@
   }
 
   let hasData = $derived(data.length > 0);
-
-  // Threshold lines
-  const thresholds = [
-    { value: 50, color: "#eab308", label: "50%" }, // Yellow
-    { value: 80, color: "#f97316", label: "80%" }, // Orange
-    { value: 90, color: "#ef4444", label: "90%" }, // Red
-  ];
 </script>
 
 <div class="chart-wrapper" bind:clientWidth={containerWidth}>
@@ -123,9 +98,8 @@
     {#if hasData}
       <svg width="100%" height="100%">
         <g transform="translate({padding.left}, {padding.top})">
-          <!-- Y axis grid lines and labels -->
-          {#each yTicks as tick}
-            <g transform="translate(0, {yScale(tick)})">
+          {#each yTicks as tick (tick)}
+            <g transform="translate(0, {scaleY(tick)})">
               <line
                 x1={0}
                 x2={innerWidth}
@@ -133,20 +107,14 @@
                 stroke-dasharray="2,2"
                 class="grid-line"
               />
-              <text
-                x={-8}
-                text-anchor="end"
-                dominant-baseline="middle"
-                class="axis-label"
-              >
+              <text x={-8} text-anchor="end" dominant-baseline="middle" class="axis-label">
                 {tick}%
               </text>
             </g>
           {/each}
 
-          <!-- X axis grid lines and labels -->
-          {#each xTicks as tick}
-            <g transform="translate({xScale(tick)}, 0)">
+          {#each xTicks as tick (tick.getTime())}
+            <g transform="translate({scaleX(tick)}, 0)">
               <line
                 y1={0}
                 y2={innerHeight}
@@ -154,112 +122,33 @@
                 stroke-dasharray="2,2"
                 class="grid-line"
               />
-              <text
-                y={innerHeight + 16}
-                text-anchor="middle"
-                class="axis-label"
-              >
+              <text y={innerHeight + 16} text-anchor="middle" class="axis-label">
                 {formatTime(tick)}
               </text>
             </g>
           {/each}
 
-          <!-- Threshold lines -->
-          {#each thresholds as threshold}
-            <g transform="translate(0, {yScale(threshold.value)})">
-              <line
-                x1={0}
-                x2={innerWidth}
-                stroke={threshold.color}
-                stroke-width="1"
-                stroke-dasharray="4,3"
-                opacity="0.7"
-              />
-              <text
-                x={innerWidth + 4}
-                dominant-baseline="middle"
-                class="threshold-label"
-                fill={threshold.color}
-              >
-                {threshold.label}
-              </text>
-            </g>
+          {#each windowMeta as window (window.key)}
+            {#if filters[window.key] !== false}
+              {@const path = generatePath(window.key)}
+              {#if path}
+                <path
+                  d={path}
+                  fill="none"
+                  stroke={window.color}
+                  stroke-width="2"
+                  stroke-linejoin="round"
+                  stroke-linecap="round"
+                />
+              {/if}
+            {/if}
           {/each}
-
-          <!-- Data lines -->
-          {#if showFiveHour && fiveHourPath}
-            <path
-              d={fiveHourPath}
-              fill="none"
-              stroke={colors.fiveHour}
-              stroke-width="2"
-              stroke-linejoin="round"
-              stroke-linecap="round"
-            />
-          {/if}
-          {#if showSevenDay && sevenDayPath}
-            <path
-              d={sevenDayPath}
-              fill="none"
-              stroke={colors.sevenDay}
-              stroke-width="2"
-              stroke-linejoin="round"
-              stroke-linecap="round"
-            />
-          {/if}
-          {#if showSonnet && sonnetPath}
-            <path
-              d={sonnetPath}
-              fill="none"
-              stroke={colors.sonnet}
-              stroke-width="2"
-              stroke-linejoin="round"
-              stroke-linecap="round"
-            />
-          {/if}
-          {#if showOpus && opusPath}
-            <path
-              d={opusPath}
-              fill="none"
-              stroke={colors.opus}
-              stroke-width="2"
-              stroke-linejoin="round"
-              stroke-linecap="round"
-            />
-          {/if}
         </g>
       </svg>
     {:else}
       <div class="no-data">
         <span>No historical data yet</span>
         <span class="hint">Data will appear after a few refreshes</span>
-      </div>
-    {/if}
-  </div>
-
-  <div class="legend">
-    {#if showFiveHour}
-      <div class="legend-item">
-        <span class="legend-color" style="background: {colors.fiveHour}"></span>
-        <span>5 Hour</span>
-      </div>
-    {/if}
-    {#if showSevenDay}
-      <div class="legend-item">
-        <span class="legend-color" style="background: {colors.sevenDay}"></span>
-        <span>7 Day</span>
-      </div>
-    {/if}
-    {#if showSonnet}
-      <div class="legend-item">
-        <span class="legend-color" style="background: {colors.sonnet}"></span>
-        <span>Sonnet</span>
-      </div>
-    {/if}
-    {#if showOpus}
-      <div class="legend-item">
-        <span class="legend-color" style="background: {colors.opus}"></span>
-        <span>Opus</span>
       </div>
     {/if}
   </div>
@@ -276,76 +165,26 @@
   }
 
   .no-data {
+    height: 100%;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: 100%;
-    color: #888;
-    font-size: 0.9rem;
-    gap: 4px;
+    gap: 0.25rem;
+    color: color-mix(in srgb, currentColor 60%, transparent);
+    font-size: 0.875rem;
   }
 
-  .no-data .hint {
+  .hint {
     font-size: 0.75rem;
-    color: #aaa;
-  }
-
-  .grid-line {
-    stroke: #e5e5e5;
   }
 
   .axis-label {
-    fill: #888;
     font-size: 10px;
+    fill: color-mix(in srgb, currentColor 65%, transparent);
   }
 
-  .threshold-label {
-    font-size: 9px;
-    font-weight: 500;
-  }
-
-  .legend {
-    display: flex;
-    justify-content: center;
-    gap: 16px;
-    margin-top: 8px;
-    flex-wrap: wrap;
-  }
-
-  .legend-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.75rem;
-    color: #666;
-  }
-
-  .legend-color {
-    width: 12px;
-    height: 3px;
-    border-radius: 2px;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .grid-line {
-      stroke: #3a3a3a;
-    }
-
-    .axis-label {
-      fill: #888;
-    }
-
-    .legend-item {
-      color: #aaa;
-    }
-
-    .no-data {
-      color: #888;
-    }
-
-    .no-data .hint {
-      color: #666;
-    }
+  .grid-line {
+    opacity: 0.5;
   }
 </style>

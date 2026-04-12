@@ -1,47 +1,91 @@
-// Re-export generated types from Rust via tauri-specta
-// Types are auto-generated when running the app in debug mode
 export type {
-  MetricStats,
   NotificationRule,
   NotificationSettings,
+  ProviderKind,
+  ProviderStatus,
   Settings,
-  UsageData,
-  UsageHistoryRecord,
-  UsagePeriod,
+  UsageHistoryPoint,
+  UsageSnapshot,
   UsageStats,
+  UsageWindow,
+  WindowStats,
 } from "./bindings.generated";
 
-// Import for use in this file
-import type { NotificationRule, NotificationSettings, UsageData } from "./bindings.generated";
+import type {
+  NotificationRule,
+  NotificationSettings,
+  ProviderKind,
+  UsageWindow,
+} from "./bindings.generated";
 
-// Event payload types (not generated since they're only used in event listeners)
 export interface UsageUpdateEvent {
-  usage: UsageData;
+  usage: import("./bindings.generated").UsageSnapshot;
   nextRefreshAt: number | null;
 }
 
 export interface UsageErrorEvent {
+  provider: import("./bindings.generated").ProviderKind;
   error: string;
 }
 
-// Notification state (frontend-only, not a command parameter)
 export interface NotificationState {
-  five_hour_last: number;
-  seven_day_last: number;
-  seven_day_sonnet_last: number;
-  seven_day_opus_last: number;
+  last_notified: Record<string, number>;
   fired_thresholds: string[];
   fired_time_remaining: string[];
 }
 
-// Frontend-only types (not shared with Rust)
-export type UsageType = "five_hour" | "seven_day" | "seven_day_sonnet" | "seven_day_opus";
+export const PROVIDER_LABELS: Record<ProviderKind, string> = {
+  claude: "Claude",
+  codex: "Codex",
+};
 
-export const USAGE_TYPE_LABELS: Record<UsageType, string> = {
-  five_hour: "5 Hour",
-  seven_day: "7 Day",
-  seven_day_sonnet: "Sonnet (7 Day)",
-  seven_day_opus: "Opus (7 Day)",
+export const PROVIDER_WINDOW_DEFAULTS: Record<ProviderKind, UsageWindow[]> = {
+  claude: [
+    {
+      key: "five_hour",
+      label: "5 Hour",
+      utilization: 0,
+      resetsAt: null,
+      windowDurationSeconds: 18_000,
+    },
+    {
+      key: "seven_day",
+      label: "7 Day",
+      utilization: 0,
+      resetsAt: null,
+      windowDurationSeconds: 604_800,
+    },
+    {
+      key: "seven_day_sonnet",
+      label: "Sonnet (7 Day)",
+      utilization: 0,
+      resetsAt: null,
+      windowDurationSeconds: 604_800,
+    },
+    {
+      key: "seven_day_opus",
+      label: "Opus (7 Day)",
+      utilization: 0,
+      resetsAt: null,
+      windowDurationSeconds: 604_800,
+    },
+  ],
+  codex: [
+    {
+      key: "primary",
+      label: "5 Hour",
+      utilization: 0,
+      resetsAt: null,
+      windowDurationSeconds: 18_000,
+    },
+    {
+      key: "secondary",
+      label: "7 Day",
+      utilization: 0,
+      resetsAt: null,
+      windowDurationSeconds: 604_800,
+    },
+  ],
 };
 
 export function getDefaultNotificationRule(): NotificationRule {
@@ -58,20 +102,71 @@ export function getDefaultNotificationRule(): NotificationRule {
 export function getDefaultNotificationSettings(): NotificationSettings {
   return {
     enabled: true,
-    five_hour: getDefaultNotificationRule(),
-    seven_day: getDefaultNotificationRule(),
-    seven_day_sonnet: getDefaultNotificationRule(),
-    seven_day_opus: getDefaultNotificationRule(),
+    rules: {},
   };
 }
 
+type LegacyNotificationSettings = {
+  enabled?: unknown;
+  five_hour?: NotificationRule;
+  seven_day?: NotificationRule;
+  seven_day_sonnet?: NotificationRule;
+  seven_day_opus?: NotificationRule;
+};
+
 export function getDefaultNotificationState(): NotificationState {
   return {
-    five_hour_last: 0,
-    seven_day_last: 0,
-    seven_day_sonnet_last: 0,
-    seven_day_opus_last: 0,
+    last_notified: {},
     fired_thresholds: [],
     fired_time_remaining: [],
   };
+}
+
+export function getWindowRuleKey(provider: ProviderKind, windowKey: string): string {
+  return `${provider}:${windowKey}`;
+}
+
+export function normalizeNotificationSettings(value: unknown): NotificationSettings {
+  if (!value || typeof value !== "object") {
+    return getDefaultNotificationSettings();
+  }
+
+  const candidate = value as Partial<NotificationSettings> & LegacyNotificationSettings;
+
+  if (candidate.rules && typeof candidate.rules === "object") {
+    return {
+      enabled: candidate.enabled ?? true,
+      rules: candidate.rules,
+    };
+  }
+
+  const legacyRules: Record<string, NotificationRule> = {};
+  const legacyEntries = [
+    ["five_hour", candidate.five_hour],
+    ["seven_day", candidate.seven_day],
+    ["seven_day_sonnet", candidate.seven_day_sonnet],
+    ["seven_day_opus", candidate.seven_day_opus],
+  ] as const;
+
+  for (const [windowKey, rule] of legacyEntries) {
+    if (rule) {
+      legacyRules[getWindowRuleKey("claude", windowKey)] = rule;
+    }
+  }
+
+  return {
+    enabled: candidate.enabled ?? true,
+    rules: legacyRules,
+  };
+}
+
+export function getProviderWindows(
+  provider: ProviderKind,
+  snapshot: import("./bindings.generated").UsageSnapshot | null,
+): UsageWindow[] {
+  if (snapshot && snapshot.provider === provider && snapshot.windows.length > 0) {
+    return snapshot.windows;
+  }
+
+  return PROVIDER_WINDOW_DEFAULTS[provider];
 }

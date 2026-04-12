@@ -5,25 +5,46 @@
 import {
   getUsageHistoryByRange,
   type TimeRange,
-  type UsageHistoryRecord,
+  type UsageHistoryPoint,
 } from "$lib/historyStorage";
+import type { ProviderKind } from "$lib/types";
 
-export function useAnalytics() {
+export interface AnalyticsCallbacks {
+  getActiveProvider: () => ProviderKind;
+}
+
+export function useAnalytics(callbacks: AnalyticsCallbacks) {
   let showAnalytics = $state(false);
   let timeRange: TimeRange = $state("24h");
-  let history: UsageHistoryRecord[] = $state([]);
+  let history: UsageHistoryPoint[] = $state([]);
   let loading = $state(false);
+  let filters: Record<string, boolean> = $state({});
 
-  // Chart filter states
-  let showFiveHour = $state(true);
-  let showSevenDay = $state(true);
-  let showSonnet = $state(true);
-  let showOpus = $state(true);
+  let availableWindows = $derived.by(() => {
+    const windows: Record<string, { key: string; label: string }> = {};
+    for (const point of history) {
+      if (!(point.windowKey in windows)) {
+        windows[point.windowKey] = { key: point.windowKey, label: point.label };
+      }
+    }
+    return Object.values(windows);
+  });
+
+  function syncFilters(points: UsageHistoryPoint[]) {
+    const nextFilters = { ...filters };
+    for (const point of points) {
+      if (!(point.windowKey in nextFilters)) {
+        nextFilters[point.windowKey] = true;
+      }
+    }
+    filters = nextFilters;
+  }
 
   async function load() {
     loading = true;
     try {
-      history = await getUsageHistoryByRange(timeRange);
+      history = await getUsageHistoryByRange(callbacks.getActiveProvider(), timeRange);
+      syncFilters(history);
     } catch (e) {
       console.error("Failed to load analytics:", e);
     } finally {
@@ -45,16 +66,31 @@ export function useAnalytics() {
     showAnalytics = false;
   }
 
-  function toggle() {
+  async function toggle() {
     if (showAnalytics) {
       close();
-    } else {
-      open();
+      return;
+    }
+
+    await open();
+  }
+
+  function setWindowFilter(windowKey: string, enabled: boolean) {
+    filters = {
+      ...filters,
+      [windowKey]: enabled,
+    };
+  }
+
+  function resetForProviderSwitch() {
+    history = [];
+    filters = {};
+    if (showAnalytics) {
+      void load();
     }
   }
 
   return {
-    // State (getters for reactivity)
     get showAnalytics() {
       return showAnalytics;
     },
@@ -70,36 +106,18 @@ export function useAnalytics() {
     get loading() {
       return loading;
     },
-    get showFiveHour() {
-      return showFiveHour;
+    get filters() {
+      return filters;
     },
-    set showFiveHour(value: boolean) {
-      showFiveHour = value;
+    get availableWindows() {
+      return availableWindows;
     },
-    get showSevenDay() {
-      return showSevenDay;
-    },
-    set showSevenDay(value: boolean) {
-      showSevenDay = value;
-    },
-    get showSonnet() {
-      return showSonnet;
-    },
-    set showSonnet(value: boolean) {
-      showSonnet = value;
-    },
-    get showOpus() {
-      return showOpus;
-    },
-    set showOpus(value: boolean) {
-      showOpus = value;
-    },
-
-    // Actions
     load,
     changeTimeRange,
     open,
     close,
     toggle,
+    setWindowFilter,
+    resetForProviderSwitch,
   };
 }
