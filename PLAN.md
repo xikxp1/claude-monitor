@@ -167,6 +167,7 @@ Complete implementation plan for Claude Monitor.
 - [x] Calculate countdown from `nextRefreshAt` timestamp
 - [x] Display last update time ("Updated: Just now", "1 min ago", etc.)
 - [x] Display countdown to next update ("Next: 4m 32s")
+- [x] Recover overdue refreshes when the dashboard becomes visible again after lock/sleep
 
 #### 5.4 Auto-Refresh Settings UI
 - [x] Add "General" tab to settings page
@@ -175,6 +176,10 @@ Complete implementation plan for Claude Monitor.
 - [x] Persist settings to store
 - [x] Show "Auto-refresh off" when disabled
 - [x] Send settings to backend via `set_auto_refresh` command
+
+#### 5.5 Resume Recovery
+- [x] Extend macOS resume detection to trigger on system wake, screen wake, and session unlock
+- [x] Re-sync the frontend by forcing one guarded refresh when the dashboard returns with stale data
 
 ### Phase 6: Auto-Start
 

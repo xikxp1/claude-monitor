@@ -1,12 +1,15 @@
-//! macOS System Wake Detection
+//! macOS System Resume Detection
 //!
-//! Monitors system wake events using NSWorkspace notifications and triggers
-//! usage refresh when the system wakes from sleep.
+//! Monitors wake and unlock-related NSWorkspace notifications and triggers
+//! usage refresh when the app should recover after the machine resumes.
 
 use objc2::rc::Retained;
 use objc2::runtime::NSObjectProtocol;
 use objc2::{define_class, msg_send, sel, AllocAnyThread, DeclaredClass};
-use objc2_app_kit::{NSWorkspace, NSWorkspaceDidWakeNotification};
+use objc2_app_kit::{
+    NSWorkspace, NSWorkspaceDidWakeNotification, NSWorkspaceScreensDidWakeNotification,
+    NSWorkspaceSessionDidBecomeActiveNotification,
+};
 use objc2_foundation::{NSNotification, NSObject};
 use tokio::sync::watch;
 
@@ -19,7 +22,7 @@ pub struct WakeObserverIvars {
 }
 
 define_class!(
-    /// Observer class that receives system wake notifications
+    /// Observer class that receives system resume notifications
     #[unsafe(super(NSObject))]
     #[name = "WakeObserver"]
     #[ivars = WakeObserverIvars]
@@ -36,7 +39,7 @@ define_class!(
 );
 
 impl WakeObserver {
-    /// Create a new wake observer with a callback for wake events
+    /// Create a new observer with a callback for wake and unlock events
     pub fn new(wake_callback: impl Fn() + Send + Sync + 'static) -> Retained<Self> {
         let observer = Self::alloc().set_ivars(WakeObserverIvars {
             wake_callback: Box::new(wake_callback),
@@ -45,17 +48,23 @@ impl WakeObserver {
         // Initialize the NSObject
         let observer: Retained<Self> = unsafe { msg_send![super(observer), init] };
 
-        // Register for wake notification
+        // Register for wake/unlock notifications.
         unsafe {
             let workspace = NSWorkspace::sharedWorkspace();
             let notification_center = workspace.notificationCenter();
 
-            notification_center.addObserver_selector_name_object(
-                &observer,
-                sel!(handleWakeNotification:),
-                Some(NSWorkspaceDidWakeNotification),
-                None,
-            );
+            for notification in [
+                NSWorkspaceDidWakeNotification,
+                NSWorkspaceScreensDidWakeNotification,
+                NSWorkspaceSessionDidBecomeActiveNotification,
+            ] {
+                notification_center.addObserver_selector_name_object(
+                    &observer,
+                    sel!(handleWakeNotification:),
+                    Some(notification),
+                    None,
+                );
+            }
         }
 
         observer
@@ -73,11 +82,11 @@ impl Drop for WakeObserver {
     }
 }
 
-/// Start monitoring system wake events.
+/// Start monitoring system resume events.
 /// Returns a handle that must be kept alive to continue receiving notifications.
 pub fn start_wake_monitor(restart_tx: watch::Sender<()>) -> Retained<WakeObserver> {
     WakeObserver::new(move || {
-        log::info!("System wake detected, triggering refresh");
+        log::info!("System resume or unlock detected, triggering refresh");
         let _ = restart_tx.send(());
     })
 }

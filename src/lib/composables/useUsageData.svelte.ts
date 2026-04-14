@@ -6,6 +6,9 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { commands } from "$lib/bindings.generated";
 import type { UsageSnapshot } from "$lib/types";
 
+const RECOVERY_GRACE_MS = 15_000;
+const RECOVERY_STALE_MS = 5 * 60_000;
+
 export interface UsageDataCallbacks {
   isAutoRefreshEnabled: () => boolean;
   setLoading: (value: boolean) => void;
@@ -13,16 +16,53 @@ export interface UsageDataCallbacks {
   isConfigured: () => boolean;
 }
 
+interface RefreshRecoveryParams {
+  isAutoRefreshEnabled: boolean;
+  isConfigured: boolean;
+  lastUpdateAt: number | null;
+  nextRefreshAt: number | null;
+  now?: number;
+  recoveryGraceMs?: number;
+  staleDataMs?: number;
+}
+
+export function shouldRecoverUsageRefresh({
+  isAutoRefreshEnabled,
+  isConfigured,
+  lastUpdateAt,
+  nextRefreshAt,
+  now = Date.now(),
+  recoveryGraceMs = RECOVERY_GRACE_MS,
+  staleDataMs = RECOVERY_STALE_MS,
+}: RefreshRecoveryParams): boolean {
+  if (!isConfigured || !isAutoRefreshEnabled) {
+    return false;
+  }
+
+  if (nextRefreshAt !== null) {
+    return now >= nextRefreshAt + recoveryGraceMs;
+  }
+
+  if (lastUpdateAt === null) {
+    return true;
+  }
+
+  return now - lastUpdateAt >= staleDataMs;
+}
+
 export function useUsageData(callbacks: UsageDataCallbacks) {
   let usageData: UsageSnapshot | null = $state(null);
-  let lastUpdateTime: Date | null = $state(null);
+  let lastUpdateAt: number | null = $state(null);
   let nextRefreshAt: number | null = $state(null);
   let secondsUntilNextUpdate = $state(0);
   let secondsSinceLastUpdate = $state(0);
 
   let countdownInterval: ReturnType<typeof setInterval> | null = null;
   let visibilityHandler: (() => void) | null = null;
+  let focusHandler: (() => void) | null = null;
   let unlistenFns: UnlistenFn[] = [];
+  let recoveryInFlight: Promise<void> | null = null;
+  let lastRecoveryAttemptAt = 0;
 
   function updateTimers() {
     if (nextRefreshAt && callbacks.isAutoRefreshEnabled()) {
@@ -34,10 +74,8 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
       secondsUntilNextUpdate = 0;
     }
 
-    if (lastUpdateTime) {
-      secondsSinceLastUpdate = Math.floor(
-        (Date.now() - lastUpdateTime.getTime()) / 1000,
-      );
+    if (lastUpdateAt !== null) {
+      secondsSinceLastUpdate = Math.floor((Date.now() - lastUpdateAt) / 1000);
     }
   }
 
@@ -62,13 +100,53 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
 
     updateTimers();
     startInterval();
+    void recoverIfStale();
+  }
+
+  function handleFocus() {
+    if (document.hidden) {
+      return;
+    }
+
+    updateTimers();
+    startInterval();
+    void recoverIfStale();
+  }
+
+  async function recoverIfStale() {
+    const now = Date.now();
+
+    if (now - lastRecoveryAttemptAt < RECOVERY_GRACE_MS) {
+      return;
+    }
+
+    if (
+      !shouldRecoverUsageRefresh({
+        isAutoRefreshEnabled: callbacks.isAutoRefreshEnabled(),
+        isConfigured: callbacks.isConfigured(),
+        lastUpdateAt,
+        nextRefreshAt,
+        now,
+      })
+    ) {
+      return;
+    }
+
+    lastRecoveryAttemptAt = now;
+    recoveryInFlight ??= refreshNow().finally(() => {
+      recoveryInFlight = null;
+    });
+
+    await recoveryInFlight;
   }
 
   function startCountdown() {
     stopCountdown();
     startInterval();
     visibilityHandler = handleVisibilityChange;
+    focusHandler = handleFocus;
     document.addEventListener("visibilitychange", visibilityHandler);
+    window.addEventListener("focus", focusHandler);
   }
 
   function stopCountdown() {
@@ -76,6 +154,10 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
     if (visibilityHandler) {
       document.removeEventListener("visibilitychange", visibilityHandler);
       visibilityHandler = null;
+    }
+    if (focusHandler) {
+      window.removeEventListener("focus", focusHandler);
+      focusHandler = null;
     }
   }
 
@@ -85,9 +167,10 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
         "usage-updated",
         (event) => {
           usageData = event.payload.usage;
-          lastUpdateTime = new Date();
+          lastUpdateAt = Date.now();
           nextRefreshAt = event.payload.nextRefreshAt;
           secondsSinceLastUpdate = 0;
+          updateTimers();
           callbacks.setError(null);
           callbacks.setLoading(false);
         },
@@ -132,18 +215,16 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
 
   function reset() {
     usageData = null;
-    lastUpdateTime = null;
+    lastUpdateAt = null;
     nextRefreshAt = null;
     secondsSinceLastUpdate = 0;
     secondsUntilNextUpdate = 0;
+    lastRecoveryAttemptAt = 0;
   }
 
   return {
     get usageData() {
       return usageData;
-    },
-    get lastUpdateTime() {
-      return lastUpdateTime;
     },
     get nextRefreshAt() {
       return nextRefreshAt;
