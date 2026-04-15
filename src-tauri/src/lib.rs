@@ -14,9 +14,10 @@ mod wake_detection;
 
 use auto_refresh::auto_refresh_loop;
 use commands::{
-    cleanup_history, clear_credentials, get_default_settings, get_provider_statuses, get_usage,
-    get_usage_history_by_range, get_usage_stats, refresh_now, save_credentials,
-    set_active_provider, set_auto_refresh, set_hourly_refresh, set_notification_settings,
+    cleanup_history, clear_credentials, clear_ollama_credentials, get_default_settings,
+    get_provider_statuses, get_usage, get_usage_history_by_range, get_usage_stats, refresh_now,
+    save_credentials, save_ollama_credentials, set_active_provider, set_auto_refresh,
+    set_hourly_refresh, set_notification_settings,
 };
 use tray::create_tray;
 use types::{AppState, AutoRefreshConfig, NotificationSettings, NotificationState};
@@ -26,8 +27,8 @@ use std::backtrace::Backtrace;
 use std::sync::Arc;
 use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_store::StoreExt;
-use tauri_specta::{collect_commands, Builder};
-use tokio::sync::{watch, Mutex};
+use tauri_specta::{Builder, collect_commands};
+use tokio::sync::{Mutex, watch};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -36,6 +37,8 @@ pub fn run() {
         get_default_settings,
         save_credentials,
         clear_credentials,
+        save_ollama_credentials,
+        clear_ollama_credentials,
         get_provider_statuses,
         set_active_provider,
         set_auto_refresh,
@@ -106,6 +109,7 @@ pub fn run() {
 
             // Try to load credentials from OS keychain
             let initial_credentials = credentials::load_credentials();
+            let ollama_token = credentials::load_ollama_credentials();
 
             let settings_store = app.store("settings.json");
 
@@ -127,41 +131,31 @@ pub fn run() {
             };
 
             // Create initial config with loaded credentials
-            let initial_config = match initial_credentials {
-                Some((org_id, token)) => AutoRefreshConfig {
-                    active_provider,
-                    organization_id: Some(org_id),
-                    session_token: Some(token),
-                    enabled: true,
-                    interval_minutes: 5,
-                    hourly_refresh_enabled,
-                },
-                None => AutoRefreshConfig {
-                    active_provider,
-                    hourly_refresh_enabled,
-                    ..AutoRefreshConfig::default()
-                },
+            let initial_config = AutoRefreshConfig {
+                active_provider,
+                organization_id: initial_credentials.as_ref().map(|(id, _)| id.clone()),
+                session_token: initial_credentials.as_ref().map(|(_, token)| token.clone()),
+                ollama_session_token: ollama_token,
+                enabled: true,
+                interval_minutes: 5,
+                hourly_refresh_enabled,
             };
 
             // Load notification settings from store
             let notification_settings = match &settings_store {
-                Ok(store) => {
-                    store
-                        .get("notification_settings")
-                        .and_then(|v| serde_json::from_value(v.clone()).ok())
-                        .unwrap_or_default()
-                }
+                Ok(store) => store
+                    .get("notification_settings")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default(),
                 Err(_) => NotificationSettings::default(),
             };
 
             // Load notification state from store
             let notification_state = match &settings_store {
-                Ok(store) => {
-                    store
-                        .get("notification_state")
-                        .and_then(|v| serde_json::from_value(v.clone()).ok())
-                        .unwrap_or_default()
-                }
+                Ok(store) => store
+                    .get("notification_state")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default(),
                 Err(_) => NotificationState::default(),
             };
 
@@ -182,8 +176,7 @@ pub fn run() {
             // Start wake detection (macOS only)
             #[cfg(target_os = "macos")]
             {
-                let wake_observer =
-                    wake_detection::start_wake_monitor(state.restart_tx.clone());
+                let wake_observer = wake_detection::start_wake_monitor(state.restart_tx.clone());
                 *state.wake_observer.blocking_lock() = Some(wake_observer);
             }
 

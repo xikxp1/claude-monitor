@@ -1,13 +1,13 @@
 use crate::types::UsageSnapshot;
-use tauri::{
-    menu::{Menu, MenuEvent, MenuItemBuilder, PredefinedMenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Runtime,
-};
 #[cfg(not(target_os = "macos"))]
 use tauri::Manager;
+use tauri::{
+    Emitter, Runtime,
+    menu::{Menu, MenuEvent, MenuItemBuilder, PredefinedMenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+};
 #[cfg(not(target_os = "macos"))]
-use tauri_plugin_positioner::{on_tray_event, Position, WindowExt};
+use tauri_plugin_positioner::{Position, WindowExt, on_tray_event};
 
 pub fn update_tray_tooltip<R: Runtime>(app: &tauri::AppHandle<R>, usage: Option<&UsageSnapshot>) {
     if let Some(tray) = app.tray_by_id("main") {
@@ -22,6 +22,7 @@ pub fn update_tray_tooltip<R: Runtime>(app: &tauri::AppHandle<R>, usage: Option<
                 let provider_name = match snapshot.provider {
                     crate::types::ProviderKind::Claude => "Claude Monitor",
                     crate::types::ProviderKind::Codex => "Codex Monitor",
+                    crate::types::ProviderKind::Ollama => "Ollama Monitor",
                 };
 
                 if parts.is_empty() {
@@ -52,8 +53,8 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
     let app_info = MenuItemBuilder::with_id("app_info", &app_label)
         .enabled(false)
         .build(app)?;
-    let check_updates = MenuItemBuilder::with_id("check_updates", "Check for Updates")
-        .build(app)?;
+    let check_updates =
+        MenuItemBuilder::with_id("check_updates", "Check for Updates").build(app)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit_i = PredefinedMenuItem::quit(app, Some("Quit"))?;
 

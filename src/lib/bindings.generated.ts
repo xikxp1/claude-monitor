@@ -4,10 +4,12 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
-	getUsage: (provider: ProviderKind, orgId: string | null, sessionToken: string | null) => typedError<UsageSnapshot, string>(__TAURI_INVOKE("get_usage", { provider, orgId, sessionToken })),
+	getUsage: (provider: ProviderKind, orgId: string | null, sessionToken: string | null, ollamaSessionToken: string | null) => typedError<UsageSnapshot, string>(__TAURI_INVOKE("get_usage", { provider, orgId, sessionToken, ollamaSessionToken })),
 	getDefaultSettings: () => __TAURI_INVOKE<Settings>("get_default_settings"),
 	saveCredentials: (orgId: string, sessionToken: string) => typedError<null, string>(__TAURI_INVOKE("save_credentials", { orgId, sessionToken })),
 	clearCredentials: () => typedError<null, string>(__TAURI_INVOKE("clear_credentials")),
+	saveOllamaCredentials: (sessionToken: string) => typedError<null, string>(__TAURI_INVOKE("save_ollama_credentials", { sessionToken })),
+	clearOllamaCredentials: () => typedError<null, string>(__TAURI_INVOKE("clear_ollama_credentials")),
 	getProviderStatuses: () => typedError<ProviderStatus[], null>(__TAURI_INVOKE("get_provider_statuses")),
 	setActiveProvider: (provider: ProviderKind) => typedError<null, null>(__TAURI_INVOKE("set_active_provider", { provider })),
 	setAutoRefresh: (enabled: boolean, intervalMinutes: number) => typedError<null, null>(__TAURI_INVOKE("set_auto_refresh", { enabled, intervalMinutes })),
@@ -34,7 +36,7 @@ export type NotificationSettings = {
 	rules: { [key in string]: NotificationRule },
 };
 
-export type ProviderKind = "claude" | "codex";
+export type ProviderKind = "claude" | "codex" | "ollama";
 
 export type ProviderStatus = {
 	provider: ProviderKind,

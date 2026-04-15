@@ -141,6 +141,10 @@
       return "Enter your Claude organization ID and session token to view usage.";
     }
 
+    if (provider === "ollama") {
+      return "Enter your Ollama session cookie to monitor your cloud usage. Find it in your browser cookies on ollama.com.";
+    }
+
     return "Codex monitoring reads your local `~/.codex/auth.json` after you log in with the Codex CLI.";
   }
 </script>
@@ -182,16 +186,6 @@
           <span class="text-secondary">{PROVIDER_LABELS[settings.activeProvider]}</span>
           <span class="text-neutral font-normal"> Monitor</span>
         </h1>
-        <div class="join">
-          {#each ["claude", "codex"] as provider (provider)}
-            <button
-              class="join-item btn btn-xs {settings.activeProvider === provider ? 'btn-primary' : 'btn-ghost'}"
-              onclick={() => handleProviderChange(provider as ProviderKind)}
-            >
-              {PROVIDER_LABELS[provider as ProviderKind]}
-            </button>
-          {/each}
-        </div>
       </div>
 
       {#if settings.isConfigured}
@@ -256,7 +250,7 @@
 
         {#if settings.settingsTab === "account" || !settings.isConfigured}
           <div class="join w-full mb-4">
-            {#each ["claude", "codex"] as provider (provider)}
+            {#each ["claude", "codex", "ollama"] as provider (provider)}
               <button
                 class="join-item btn btn-sm flex-1 {settings.activeProvider === provider ? 'btn-primary' : 'btn-ghost'}"
                 onclick={() => handleProviderChange(provider as ProviderKind)}
@@ -327,6 +321,53 @@
                   <li>Open browser DevTools (F12)</li>
                   <li>Go to Application &gt; Cookies &gt; claude.ai</li>
                   <li>Find "sessionKey" cookie and copy its value</li>
+                </ol>
+              </div>
+            </div>
+          {:else if settings.activeProvider === "ollama"}
+            <form
+              class="flex flex-col gap-3"
+              onsubmit={(event) => {
+                event.preventDefault();
+                void settings.saveOllamaCredentials();
+              }}
+            >
+              <label class="form-control w-full">
+                <div class="label">
+                  <span class="label-text font-medium">Session Cookie</span>
+                </div>
+                <input
+                  type="password"
+                  class="input input-bordered w-full"
+                  bind:value={settings.ollamaTokenInput}
+                  placeholder="Your Ollama session cookie value"
+                  required
+                />
+              </label>
+
+              <div class="flex gap-2 mt-2">
+                <button type="submit" class="btn btn-primary" disabled={settings.loading}>
+                  {settings.loading ? "Saving..." : "Save"}
+                </button>
+                {#if settings.providerStatuses.ollama.configured}
+                  <button type="button" class="btn btn-ghost" onclick={settings.logoutOllama}>
+                    Log Out
+                  </button>
+                {/if}
+              </div>
+            </form>
+
+            <div class="collapse collapse-arrow bg-base-200 mt-3 min-h-0">
+              <input type="checkbox" />
+              <div class="collapse-title text-xs font-medium py-2 min-h-0">
+                How to get your session cookie
+              </div>
+              <div class="collapse-content text-xs text-base-content/70 !pb-2">
+                <ol class="list-decimal pl-4 space-y-0.5">
+                  <li>Go to <a href="https://ollama.com/settings" target="_blank" class="link link-primary">ollama.com</a> and log in</li>
+                  <li>Open browser DevTools (F12)</li>
+                  <li>Go to Application &gt; Cookies &gt; ollama.com</li>
+                  <li>Find your '__Secure-session' cookie and copy its value</li>
                 </ol>
               </div>
             </div>
@@ -668,13 +709,15 @@
               <p class="text-sm text-base-content/70 mb-2">
                 {#if settings.activeProvider === "claude"}
                   Your Claude session has expired. Update your session token to continue.
+                {:else if settings.activeProvider === "ollama"}
+                  Your Ollama session has expired. Update your session cookie to continue.
                 {:else}
                   Your Codex login appears to be expired. Run `codex login` and then recheck auth.
                 {/if}
               </p>
-              {#if settings.activeProvider === "claude"}
+              {#if settings.activeProvider === "claude" || settings.activeProvider === "ollama"}
                 <button class="btn btn-primary btn-sm" onclick={() => settings.openCredentials()}>
-                  Update Token
+                  Update {settings.activeProvider === "claude" ? "Token" : "Cookie"}
                 </button>
               {:else}
                 <button class="btn btn-primary btn-sm" onclick={() => settings.refreshProviderStatuses()}>

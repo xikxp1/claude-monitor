@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::types::{ProviderKind, ProviderStatus, UsageSnapshot, UsageWindow};
 use crate::validation::{validate_org_id, validate_session_token};
-use reqwest::header::{HeaderMap, HeaderValue, COOKIE, USER_AGENT};
+use reqwest::header::{COOKIE, HeaderMap, HeaderValue, USER_AGENT};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -31,10 +31,7 @@ pub async fn fetch_usage(
 
     let client = reqwest::Client::new();
     let mut headers = HeaderMap::new();
-    headers.insert(
-        USER_AGENT,
-        HeaderValue::from_static("Claude-Monitor/0.1.0"),
-    );
+    headers.insert(USER_AGENT, HeaderValue::from_static("Claude-Monitor/0.1.0"));
     headers.insert(
         COOKIE,
         HeaderValue::from_str(&format!("sessionKey={session_token}"))
@@ -48,11 +45,10 @@ pub async fn fetch_usage(
     match status {
         200 => {
             let body = response.text().await?;
-            let usage: ClaudeUsageData = serde_json::from_str(&body)
-                .map_err(|e| {
-                    log::error!("Failed to parse Claude usage response: {e}");
-                    AppError::Server(format!("Failed to parse response: {e}"))
-                })?;
+            let usage: ClaudeUsageData = serde_json::from_str(&body).map_err(|e| {
+                log::error!("Failed to parse Claude usage response: {e}");
+                AppError::Server(format!("Failed to parse response: {e}"))
+            })?;
 
             Ok(UsageSnapshot {
                 provider: ProviderKind::Claude,
@@ -104,10 +100,7 @@ pub async fn fetch_usage(
     }
 }
 
-pub fn get_status(
-    org_id: Option<&str>,
-    session_token: Option<&str>,
-) -> ProviderStatus {
+pub fn get_status(org_id: Option<&str>, session_token: Option<&str>) -> ProviderStatus {
     let configured = org_id.is_some() && session_token.is_some();
     ProviderStatus {
         provider: ProviderKind::Claude,

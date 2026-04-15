@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::types::{ProviderKind, ProviderStatus, UsageSnapshot, UsageWindow};
 use chrono::{DateTime, Utc};
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, USER_AGENT};
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue, USER_AGENT};
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -42,10 +42,7 @@ pub async fn fetch_usage() -> Result<UsageSnapshot, AppError> {
 
     let client = reqwest::Client::new();
     let mut headers = HeaderMap::new();
-    headers.insert(
-        USER_AGENT,
-        HeaderValue::from_static("Claude-Monitor/0.1.0"),
-    );
+    headers.insert(USER_AGENT, HeaderValue::from_static("Claude-Monitor/0.1.0"));
     headers.insert(
         AUTHORIZATION,
         HeaderValue::from_str(&format!("Bearer {access_token}"))
@@ -61,18 +58,14 @@ pub async fn fetch_usage() -> Result<UsageSnapshot, AppError> {
     match response.status().as_u16() {
         200 => {
             let body = response.text().await?;
-            let usage: WhamUsageResponse = serde_json::from_str(&body)
-                .map_err(|e| {
-                    log::error!("Failed to parse Codex WHAM usage response: {e}");
-                    AppError::Server(format!("Failed to parse Codex usage: {e}"))
-                })?;
+            let usage: WhamUsageResponse = serde_json::from_str(&body).map_err(|e| {
+                log::error!("Failed to parse Codex WHAM usage response: {e}");
+                AppError::Server(format!("Failed to parse Codex usage: {e}"))
+            })?;
 
             Ok(UsageSnapshot {
                 provider: ProviderKind::Codex,
-                windows: usage
-                    .rate_limit
-                    .map(map_windows)
-                    .unwrap_or_default(),
+                windows: usage.rate_limit.map(map_windows).unwrap_or_default(),
                 account_email: usage.email,
                 plan_type: usage.plan_type,
             })
@@ -166,22 +159,26 @@ pub fn load_access_token() -> Result<String, AppError> {
         );
         AppError::Server("Codex auth not found. Run `codex login` first.".to_string())
     })?;
-    let auth: CodexAuthFile = serde_json::from_str(&raw)
-        .map_err(|e| {
-            log::error!(
-                "Failed to parse Codex auth file at {}: {e}",
-                auth_path.display()
-            );
-            AppError::Server(format!("Failed to parse Codex auth.json: {e}"))
-        })?;
-
-    auth.tokens.access_token.filter(|token| !token.is_empty()).ok_or_else(|| {
+    let auth: CodexAuthFile = serde_json::from_str(&raw).map_err(|e| {
         log::error!(
-            "Codex auth file at {} did not contain a usable access token",
+            "Failed to parse Codex auth file at {}: {e}",
             auth_path.display()
         );
-        AppError::Server("Codex auth is missing an access token. Run `codex login` again.".to_string())
-    })
+        AppError::Server(format!("Failed to parse Codex auth.json: {e}"))
+    })?;
+
+    auth.tokens
+        .access_token
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| {
+            log::error!(
+                "Codex auth file at {} did not contain a usable access token",
+                auth_path.display()
+            );
+            AppError::Server(
+                "Codex auth is missing an access token. Run `codex login` again.".to_string(),
+            )
+        })
 }
 
 fn get_auth_path() -> PathBuf {
