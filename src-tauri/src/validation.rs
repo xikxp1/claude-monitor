@@ -27,7 +27,9 @@ pub fn validate_org_id(org_id: &str) -> Result<(), AppError> {
     }
 
     if org_id.len() > 128 {
-        return Err(AppError::MissingConfig("organization_id too long".to_string()));
+        return Err(AppError::MissingConfig(
+            "organization_id too long".to_string(),
+        ));
     }
 
     for c in org_id.chars() {

@@ -151,30 +151,33 @@ pub fn get_usage_stats(provider: ProviderKind, range: &str) -> SqliteResult<Usag
     )?;
 
     let windows = stmt
-        .query_map(rusqlite::params![provider_str, &from_str, &now_str], |row| {
-            let current: Option<f64> = row.get(2)?;
-            let first_value: Option<f64> = row.get(3)?;
-            let last_value: Option<f64> = row.get(4)?;
-            let change = match (first_value, last_value) {
-                (Some(first), Some(last)) => Some(last - first),
-                _ => None,
-            };
-            let velocity = change.and_then(|delta| {
-                if delta >= 0.0 && period_hours > 0.0 {
-                    Some(delta / period_hours)
-                } else {
-                    None
-                }
-            });
+        .query_map(
+            rusqlite::params![provider_str, &from_str, &now_str],
+            |row| {
+                let current: Option<f64> = row.get(2)?;
+                let first_value: Option<f64> = row.get(3)?;
+                let last_value: Option<f64> = row.get(4)?;
+                let change = match (first_value, last_value) {
+                    (Some(first), Some(last)) => Some(last - first),
+                    _ => None,
+                };
+                let velocity = change.and_then(|delta| {
+                    if delta >= 0.0 && period_hours > 0.0 {
+                        Some(delta / period_hours)
+                    } else {
+                        None
+                    }
+                });
 
-            Ok(WindowStats {
-                key: row.get(0)?,
-                label: row.get(1)?,
-                current,
-                change,
-                velocity,
-            })
-        })?
+                Ok(WindowStats {
+                    key: row.get(0)?,
+                    label: row.get(1)?,
+                    current,
+                    change,
+                    velocity,
+                })
+            },
+        )?
         .collect::<Result<Vec<_>, _>>()?;
 
     let record_count: i64 = conn.query_row(
@@ -222,8 +225,11 @@ fn get_usage_history(
         ORDER BY timestamp ASC, window_key ASC"#,
     )?;
 
-    stmt.query_map(rusqlite::params![provider.as_str(), from, to], map_history_point)?
-        .collect::<Result<Vec<_>, _>>()
+    stmt.query_map(
+        rusqlite::params![provider.as_str(), from, to],
+        map_history_point,
+    )?
+    .collect::<Result<Vec<_>, _>>()
 }
 
 fn get_usage_history_downsampled(
@@ -249,8 +255,11 @@ fn get_usage_history_downsampled(
     );
 
     let mut stmt = conn.prepare(&query)?;
-    stmt.query_map(rusqlite::params![provider.as_str(), from, to], map_history_point)?
-        .collect::<Result<Vec<_>, _>>()
+    stmt.query_map(
+        rusqlite::params![provider.as_str(), from, to],
+        map_history_point,
+    )?
+    .collect::<Result<Vec<_>, _>>()
 }
 
 fn map_history_point(row: &rusqlite::Row<'_>) -> SqliteResult<UsageHistoryPoint> {
@@ -269,6 +278,7 @@ fn map_history_point(row: &rusqlite::Row<'_>) -> SqliteResult<UsageHistoryPoint>
 fn parse_provider(raw: &str) -> ProviderKind {
     match raw {
         "codex" => ProviderKind::Codex,
+        "ollama" => ProviderKind::Ollama,
         _ => ProviderKind::Claude,
     }
 }
@@ -345,15 +355,30 @@ fn backfill_legacy_claude_data(conn: &Connection) -> SqliteResult<()> {
         ) = row?;
 
         let legacy_windows = [
-            legacy_window("five_hour", "5 Hour", five_hour_utilization, five_hour_resets_at),
-            legacy_window("seven_day", "7 Day", seven_day_utilization, seven_day_resets_at),
+            legacy_window(
+                "five_hour",
+                "5 Hour",
+                five_hour_utilization,
+                five_hour_resets_at,
+            ),
+            legacy_window(
+                "seven_day",
+                "7 Day",
+                seven_day_utilization,
+                seven_day_resets_at,
+            ),
             legacy_window(
                 "seven_day_sonnet",
                 "Sonnet (7 Day)",
                 sonnet_utilization,
                 sonnet_resets_at,
             ),
-            legacy_window("seven_day_opus", "Opus (7 Day)", opus_utilization, opus_resets_at),
+            legacy_window(
+                "seven_day_opus",
+                "Opus (7 Day)",
+                opus_utilization,
+                opus_resets_at,
+            ),
         ]
         .into_iter()
         .flatten()

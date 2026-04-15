@@ -37,6 +37,7 @@ export interface NotificationState {
 export const PROVIDER_LABELS: Record<ProviderKind, string> = {
   claude: "Claude",
   codex: "Codex",
+  ollama: "Ollama",
 };
 
 export const PROVIDER_WINDOW_DEFAULTS: Record<ProviderKind, UsageWindow[]> = {
@@ -84,6 +85,22 @@ export const PROVIDER_WINDOW_DEFAULTS: Record<ProviderKind, UsageWindow[]> = {
       utilization: 0,
       resetsAt: null,
       windowDurationSeconds: 604_800,
+    },
+  ],
+  ollama: [
+    {
+      key: "session",
+      label: "Session",
+      utilization: 0,
+      resetsAt: null,
+      windowDurationSeconds: null,
+    },
+    {
+      key: "weekly",
+      label: "Weekly",
+      utilization: 0,
+      resetsAt: null,
+      windowDurationSeconds: null,
     },
   ],
 };

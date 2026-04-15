@@ -5,7 +5,7 @@
 
 use objc2::rc::Retained;
 use objc2::runtime::NSObjectProtocol;
-use objc2::{define_class, msg_send, sel, AllocAnyThread, DeclaredClass};
+use objc2::{AllocAnyThread, DeclaredClass, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSWorkspace, NSWorkspaceDidWakeNotification, NSWorkspaceScreensDidWakeNotification,
     NSWorkspaceSessionDidBecomeActiveNotification,

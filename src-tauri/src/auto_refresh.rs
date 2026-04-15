@@ -128,6 +128,7 @@ pub async fn do_fetch_and_emit(
     let provider = config.active_provider;
     let org_id = config.organization_id.clone();
     let session_token = config.session_token.clone();
+    let ollama_session_token = config.ollama_session_token.clone();
     let enabled = config.enabled;
     let hourly_refresh_enabled = config.hourly_refresh_enabled;
     drop(config);
@@ -135,6 +136,7 @@ pub async fn do_fetch_and_emit(
     let has_provider_config = match provider {
         crate::types::ProviderKind::Claude => org_id.is_some() && session_token.is_some(),
         crate::types::ProviderKind::Codex => true,
+        crate::types::ProviderKind::Ollama => ollama_session_token.is_some(),
     };
 
     if !has_provider_config {
@@ -148,7 +150,14 @@ pub async fn do_fetch_and_emit(
         };
     }
 
-    match fetch_usage_for_provider(provider, org_id.as_deref(), session_token.as_deref()).await {
+    match fetch_usage_for_provider(
+        provider,
+        org_id.as_deref(),
+        session_token.as_deref(),
+        ollama_session_token.as_deref(),
+    )
+    .await
+    {
         Ok(usage) => {
             // Update tray tooltip
             update_tray_tooltip(app, Some(&usage));
@@ -166,12 +175,8 @@ pub async fn do_fetch_and_emit(
                 *notification_state = reset_state;
 
                 // Process notifications and update state
-                let new_state = process_notifications(
-                    app,
-                    &usage,
-                    &notification_settings,
-                    &notification_state,
-                );
+                let new_state =
+                    process_notifications(app, &usage, &notification_settings, &notification_state);
                 *notification_state = new_state;
             }
 
@@ -251,6 +256,7 @@ pub async fn auto_refresh_loop(app: tauri::AppHandle, state: Arc<AppState>) {
                 config.organization_id.is_some() && config.session_token.is_some()
             }
             crate::types::ProviderKind::Codex => true,
+            crate::types::ProviderKind::Ollama => config.ollama_session_token.is_some(),
         };
         drop(config);
 

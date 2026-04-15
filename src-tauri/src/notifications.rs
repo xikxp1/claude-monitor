@@ -157,7 +157,12 @@ pub fn process_notifications<R: tauri::Runtime>(
                 window.utilization
             );
 
-            let _ = app.notification().builder().title(&title).body(&body).show();
+            let _ = app
+                .notification()
+                .builder()
+                .title(&title)
+                .body(&body)
+                .show();
         }
 
         new_state.last_notified.insert(key, window.utilization);
@@ -214,10 +219,10 @@ mod tests {
     #[test]
     fn resets_state_when_window_drops_significantly() {
         let mut state = NotificationState::default();
-        state.last_notified.insert("codex:primary".to_string(), 90.0);
         state
-            .fired_thresholds
-            .push("codex:primary:80".to_string());
+            .last_notified
+            .insert("codex:primary".to_string(), 90.0);
+        state.fired_thresholds.push("codex:primary:80".to_string());
 
         let new_state = reset_notification_state_if_needed(&snapshot(10.0), &state);
         assert_eq!(new_state.last_notified.get("codex:primary"), Some(&0.0));

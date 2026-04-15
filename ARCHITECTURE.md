@@ -17,6 +17,7 @@
 The app now supports one active provider at a time:
 - `Claude` via `GET https://claude.ai/api/organizations/{org_id}/usage`
 - `Codex` via `GET https://chatgpt.com/backend-api/wham/usage`
+- `Ollama` via HTML scraping of `https://ollama.com/settings` (no JSON API available)
 
 Each provider is mapped into the same backend model:
 ```rust
@@ -73,7 +74,8 @@ claude-monitor/
 │   │   ├── api.rs                            # Provider dispatcher
 │   │   ├── api/                             # Provider-specific fetchers
 │   │   │   ├── claude.rs                    # Claude web usage API
-│   │   │   └── codex.rs                     # Codex auth.json + WHAM usage API
+│   │   │   ├── codex.rs                     # Codex auth.json + WHAM usage API
+│   │   │   └── ollama.rs                    # Ollama HTML scraping from ollama.com/settings
 │   │   ├── auto_refresh.rs                   # Background refresh loop
 │   │   ├── commands.rs                       # Tauri commands
 │   │   ├── error.rs                          # AppError enum
@@ -105,8 +107,8 @@ The Rust backend (`src-tauri/src/`) is organized into focused modules:
 - `error.rs` - Custom `AppError` enum with thiserror and Serialize
 - `types.rs` - All shared data structures (UsageData, Settings, NotificationRule, AppState, etc.)
 - `validation.rs` - Input sanitization (session token, org ID format validation)
-- `credentials.rs` - OS keychain storage via `keyring` crate (load/save/delete)
-- `api.rs` - HTTP client for Claude API
+- `credentials.rs` - OS keychain storage via `keyring` crate (load/save/delete for both Claude and Ollama)
+- `api.rs` - HTTP client dispatcher for all providers
 - `notifications.rs` - Notification processing and firing
 - `tray.rs` - System tray creation and tooltip updates
 - `auto_refresh.rs` - Background refresh loop with tokio (includes notification processing)
@@ -176,6 +178,15 @@ invoke("refresh_now")         →   Triggers immediate fetch, resets timer
   - `rate_limit.primary_window` → generic `primary`
   - `rate_limit.secondary_window` → generic `secondary`
 
+### Ollama
+- Stores session cookie in OS keychain (separate key from Claude credentials)
+- Scrapes HTML from `GET https://ollama.com/settings` with cookie authentication
+- Uses `scraper` crate for CSS-selector-based HTML parsing
+- Extracts: session usage %, weekly usage %, reset timestamps, plan type, account email
+- Maps:
+  - Session usage section → generic `session`
+  - Weekly usage section → generic `weekly`
+
 ## Platform-Specific Behavior
 - **All platforms**: Uses positioner plugin for tray-relative window positioning, auto-hides on focus loss, always-on-top window
 - **macOS**: Sets activation policy to Accessory for proper tray app behavior (no dock icon)
@@ -213,11 +224,15 @@ The app automatically refreshes usage data when the machine resumes or the user 
   - `load_credentials()` - Called in setup, loads on app start
   - `save_credentials()` - Called by `save_credentials` command
   - `delete_credentials()` - Called by `clear_credentials` command
+  - `load_ollama_credentials()` - Loads Ollama session cookie from keychain
+  - `save_ollama_credentials()` - Called by `save_ollama_credentials` command
+  - `delete_ollama_credentials()` - Called by `clear_ollama_credentials` command
 - Tauri commands for frontend:
   - `save_credentials(org_id, session_token)` - Validates, saves, updates state
   - `clear_credentials()` - Deletes and clears state
   - `get_is_configured()` - Returns boolean without exposing credentials
 - Service name: `dev.xikxp1.claude-monitor`
+- Claude key: `credentials`, Ollama key: `ollama_credentials`
 - No npm package needed - frontend only calls Tauri commands
 
 ## Charts & Analytics

@@ -37,6 +37,12 @@ function emptyProviderStatuses(): Record<ProviderKind, ProviderStatus> {
       source: "auth-json",
       message: "Run `codex login` to enable Codex monitoring.",
     },
+    ollama: {
+      provider: "ollama",
+      configured: false,
+      source: "keychain",
+      message: "Add your Ollama session cookie to enable monitoring.",
+    },
   };
 }
 
@@ -58,6 +64,7 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
 
   let orgIdInput = $state("");
   let tokenInput = $state("");
+  let ollamaTokenInput = $state("");
 
   let refreshIntervalMinutes = $state(5);
   let autoRefreshEnabled = $state(true);
@@ -183,6 +190,39 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     onSuccess?.("Claude credentials saved");
   }
 
+  async function saveOllamaCredentials() {
+    loading = true;
+    error = null;
+
+    const result = await commands.saveOllamaCredentials(ollamaTokenInput);
+    if (result.status === "error") {
+      error = result.error;
+      loading = false;
+      onError?.(error);
+      return;
+    }
+
+    ollamaTokenInput = "";
+    await refreshProviderStatuses();
+    showSettings = false;
+    loading = false;
+    onSuccess?.("Ollama credentials saved");
+  }
+
+  async function logoutOllama() {
+    const result = await commands.clearOllamaCredentials();
+    if (result.status === "error") {
+      onError?.(result.error);
+      return;
+    }
+
+    ollamaTokenInput = "";
+    error = null;
+    showSettings = false;
+    await refreshProviderStatuses();
+    onSuccess?.("Ollama credentials cleared");
+  }
+
   async function persistNotifications(newSettings: NotificationSettings) {
     try {
       await store.set("notification_settings", newSettings);
@@ -286,9 +326,15 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
   }
 
   async function resetAll() {
-    const result = await commands.clearCredentials();
-    if (result.status === "error") {
-      onError?.(result.error);
+    const results = await Promise.all([
+      commands.clearCredentials(),
+      commands.clearOllamaCredentials(),
+    ]);
+    if (results.some((r) => r.status === "error")) {
+      const errResult = results.find((r) => r.status === "error");
+      if (errResult && errResult.status === "error") {
+        onError?.(errResult.error);
+      }
       return;
     }
 
@@ -368,6 +414,12 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     set tokenInput(value: string) {
       tokenInput = value;
     },
+    get ollamaTokenInput() {
+      return ollamaTokenInput;
+    },
+    set ollamaTokenInput(value: string) {
+      ollamaTokenInput = value;
+    },
     get refreshIntervalMinutes() {
       return refreshIntervalMinutes;
     },
@@ -405,12 +457,14 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     refreshProviderStatuses,
     setActiveProvider,
     saveCredentials,
+    saveOllamaCredentials,
     saveNotifications,
     saveGeneral,
     toggleAutostart,
     toggleHourlyRefresh,
     saveRetention,
     logout,
+    logoutOllama,
     resetAll,
     open,
     close,

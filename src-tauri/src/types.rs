@@ -1,7 +1,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 use std::collections::BTreeMap;
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{Mutex, watch};
 
 #[cfg(target_os = "macos")]
 use objc2::rc::Retained;
@@ -15,6 +15,7 @@ use objc2::rc::Retained;
 pub enum ProviderKind {
     Claude,
     Codex,
+    Ollama,
 }
 
 impl ProviderKind {
@@ -22,6 +23,7 @@ impl ProviderKind {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
+            Self::Ollama => "ollama",
         }
     }
 }
@@ -177,6 +179,7 @@ pub struct AutoRefreshConfig {
     pub active_provider: ProviderKind,
     pub organization_id: Option<String>,
     pub session_token: Option<String>,
+    pub ollama_session_token: Option<String>,
     pub enabled: bool,
     pub interval_minutes: u32,
     pub hourly_refresh_enabled: bool,
@@ -188,6 +191,7 @@ impl Default for AutoRefreshConfig {
             active_provider: ProviderKind::Claude,
             organization_id: None,
             session_token: None,
+            ollama_session_token: None,
             enabled: true,
             interval_minutes: 5,
             hourly_refresh_enabled: false,

@@ -236,6 +236,17 @@ A comprehensive analytics system to visualize usage trends and patterns over tim
 - [x] Add Codex usage fetch via `GET https://chatgpt.com/backend-api/wham/usage`
 - [x] Map Codex primary/secondary windows into generic usage windows
 
+#### 9.5 Ollama Provider Support
+- [x] Add `Ollama` variant to `ProviderKind` enum and `as_str()` method
+- [x] Create `api/ollama.rs` module with HTML scraping via `scraper` crate
+- [x] Parse ollama.com/settings HTML for session/weekly usage, reset times, plan type, email
+- [x] Add Ollama credential storage (session cookie in OS keychain, separate key from Claude)
+- [x] Add `save_ollama_credentials` / `clear_ollama_credentials` Tauri commands
+- [x] Extend `AutoRefreshConfig` with `ollama_session_token` field
+- [x] Update auto-refresh loop to handle Ollama provider
+- [x] Update frontend: provider switcher, credential form, auth-expired messaging
+- [x] Two usage windows: "Session" (resets in hours) and "Weekly" (resets in days)
+
 #### 9.3 Dynamic Notifications & Analytics
 - [x] Replace fixed notification state/settings with provider + window keyed rules
 - [x] Normalize usage history into `usage_history_v2` (`provider`, `window_key`, `label`, `utilization`, `resets_at`)

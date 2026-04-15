@@ -15,8 +15,15 @@ pub async fn get_usage(
     provider: ProviderKind,
     org_id: Option<String>,
     session_token: Option<String>,
+    ollama_session_token: Option<String>,
 ) -> Result<UsageSnapshot, AppError> {
-    fetch_usage_for_provider(provider, org_id.as_deref(), session_token.as_deref()).await
+    fetch_usage_for_provider(
+        provider,
+        org_id.as_deref(),
+        session_token.as_deref(),
+        ollama_session_token.as_deref(),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -61,6 +68,38 @@ pub async fn clear_credentials(state: tauri::State<'_, Arc<AppState>>) -> Result
 
 #[tauri::command]
 #[specta::specta]
+pub async fn save_ollama_credentials(
+    state: tauri::State<'_, Arc<AppState>>,
+    session_token: String,
+) -> Result<(), AppError> {
+    validate_session_token(&session_token)?;
+    credentials::save_ollama_credentials(&session_token)?;
+
+    let mut config = state.config.lock().await;
+    config.ollama_session_token = Some(session_token);
+    drop(config);
+
+    let _ = state.restart_tx.send(());
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn clear_ollama_credentials(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<(), AppError> {
+    credentials::delete_ollama_credentials()?;
+
+    let mut config = state.config.lock().await;
+    config.ollama_session_token = None;
+    drop(config);
+
+    let _ = state.restart_tx.send(());
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn set_active_provider(
     state: tauri::State<'_, Arc<AppState>>,
     provider: ProviderKind,
@@ -82,6 +121,7 @@ pub async fn get_provider_statuses(
     Ok(collect_provider_statuses(
         config.organization_id.as_deref(),
         config.session_token.as_deref(),
+        config.ollama_session_token.as_deref(),
     ))
 }
 
