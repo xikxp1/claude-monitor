@@ -1,7 +1,7 @@
-import { commands } from "$lib/bindings.generated";
+import { commands } from "$lib/electrobunClient";
 import type { ProviderKind } from "$lib/types";
 
-export type { UsageHistoryPoint, UsageStats, WindowStats } from "$lib/bindings.generated";
+export type { UsageHistoryPoint, UsageStats, WindowStats } from "$lib/types";
 
 export type TimeRange = "1h" | "6h" | "24h" | "7d" | "30d";
 

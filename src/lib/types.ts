@@ -9,24 +9,17 @@ export type {
   UsageStats,
   UsageWindow,
   WindowStats,
-} from "./bindings.generated";
+} from "../shared/types";
 
 import type {
   NotificationRule,
   NotificationSettings,
   ProviderKind,
   UsageWindow,
-} from "./bindings.generated";
+  UsageSnapshot,
+} from "../shared/types";
 
-export interface UsageUpdateEvent {
-  usage: import("./bindings.generated").UsageSnapshot;
-  nextRefreshAt: number | null;
-}
-
-export interface UsageErrorEvent {
-  provider: import("./bindings.generated").ProviderKind;
-  error: string;
-}
+export type { UsageErrorEvent, UsageUpdateEvent } from "../shared/types";
 
 export interface NotificationState {
   last_notified: Record<string, number>;
@@ -179,7 +172,7 @@ export function normalizeNotificationSettings(value: unknown): NotificationSetti
 
 export function getProviderWindows(
   provider: ProviderKind,
-  snapshot: import("./bindings.generated").UsageSnapshot | null,
+  snapshot: UsageSnapshot | null,
 ): UsageWindow[] {
   if (snapshot && snapshot.provider === provider && snapshot.windows.length > 0) {
     return snapshot.windows;

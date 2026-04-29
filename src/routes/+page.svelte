@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+  import { listen, type UnlistenFn } from "$lib/electrobunClient";
   import UsageLineChart from "$lib/components/charts/UsageLineChart.svelte";
   import NotificationSettingsComponent from "$lib/components/NotificationSettings.svelte";
   import ToastContainer from "$lib/components/ToastContainer.svelte";
@@ -173,7 +173,7 @@
   </div>
 {/snippet}
 
-<main class="h-screen p-3.5 bg-base-100 rounded-xl border border-base-300 shadow-lg flex flex-col overflow-hidden">
+<main class="h-screen px-2 pb-2 pt-1 bg-base-100 rounded-xl border border-base-300 shadow-lg flex flex-col overflow-hidden">
   {#if initializing}
     <div class="flex flex-col items-center justify-center flex-1 gap-3">
       <span class="loading loading-spinner loading-md text-primary"></span>
@@ -182,14 +182,14 @@
   {:else}
     <header class="flex justify-between items-center mb-2.5 py-1 border-b border-base-300 gap-2">
       <div class="flex items-center gap-3">
-        <h1 class="m-0 ml-2 text-[1.15rem] font-semibold tracking-tight">
+        <h1 class="m-0 ml-1 text-[1.15rem] font-semibold tracking-tight">
           <span class="text-secondary">{PROVIDER_LABELS[settings.activeProvider]}</span>
           <span class="text-neutral font-normal"> Monitor</span>
         </h1>
       </div>
 
       {#if settings.isConfigured}
-        <div class="flex gap-1.5 mr-2">
+        <div class="flex gap-1.5 mr-1">
           <button
             class="btn btn-sm {analytics.showAnalytics ? 'btn-primary' : 'btn-soft'}"
             onclick={() => {
@@ -217,8 +217,6 @@
 
     {#if !settings.isConfigured || settings.showSettings}
       <section class="w-full max-w-xs mx-auto flex-1 overflow-y-auto">
-        <h2 class="text-lg font-semibold mb-2">{settings.isConfigured ? "Settings" : "Setup"}</h2>
-
         {#if settings.isConfigured}
           <div class="join w-full mb-4">
             <button
@@ -315,7 +313,7 @@
               <div class="collapse-title text-xs font-medium py-2 min-h-0">
                 How to get your session token
               </div>
-              <div class="collapse-content text-xs text-base-content/70 !pb-2">
+              <div class="collapse-content text-xs text-base-content/70 pb-2!">
                 <ol class="list-decimal pl-4 space-y-0.5">
                   <li>Go to <a href="https://claude.ai" target="_blank" class="link link-primary">claude.ai</a> and log in</li>
                   <li>Open browser DevTools (F12)</li>
@@ -362,7 +360,7 @@
               <div class="collapse-title text-xs font-medium py-2 min-h-0">
                 How to get your session cookie
               </div>
-              <div class="collapse-content text-xs text-base-content/70 !pb-2">
+              <div class="collapse-content text-xs text-base-content/70 pb-2!">
                 <ol class="list-decimal pl-4 space-y-0.5">
                   <li>Go to <a href="https://ollama.com/settings" target="_blank" class="link link-primary">ollama.com</a> and log in</li>
                   <li>Open browser DevTools (F12)</li>
@@ -621,9 +619,7 @@
         {/if}
       </section>
     {:else if analytics.showAnalytics}
-      <section class="flex-1 overflow-y-auto flex flex-col gap-4 px-2">
-        <h2 class="text-lg font-semibold">{PROVIDER_LABELS[settings.activeProvider]} Analytics</h2>
-
+      <section class="flex-1 overflow-y-auto flex flex-col gap-4 px-1">
         <div class="flex justify-between items-center gap-2">
           <div class="join">
             {#each ["1h", "6h", "24h", "7d", "30d"] as range (range)}
@@ -655,12 +651,12 @@
 
         <div class="card bg-base-200 shadow-sm">
           <div class="card-body p-3">
-            <UsageLineChart data={analytics.history} filters={analytics.filters} height={220} />
+            <UsageLineChart data={analytics.history} filters={analytics.filters} height={190} />
           </div>
         </div>
       </section>
     {:else}
-      <section class="flex flex-col gap-2.5 flex-1 overflow-y-auto px-2">
+      <section class="flex flex-col gap-2.5 flex-1 overflow-y-auto px-1">
         {#if updates.isUpdateAvailable}
           <button
             class="alert alert-info text-sm py-2 cursor-pointer hover:brightness-95 transition-all"
