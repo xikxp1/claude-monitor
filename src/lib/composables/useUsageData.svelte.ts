@@ -2,8 +2,7 @@
  * Usage data composable - manages usage data fetching, events, and countdown timer
  */
 
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { commands } from "$lib/bindings.generated";
+import { commands, listen, type UnlistenFn } from "$lib/electrobunClient";
 import type { UsageSnapshot } from "$lib/types";
 
 const RECOVERY_GRACE_MS = 15_000;
@@ -163,22 +162,19 @@ export function useUsageData(callbacks: UsageDataCallbacks) {
 
   async function setupEventListeners() {
     unlistenFns.push(
-      await listen<{ usage: UsageSnapshot; nextRefreshAt: number | null }>(
-        "usage-updated",
-        (event) => {
-          usageData = event.payload.usage;
-          lastUpdateAt = Date.now();
-          nextRefreshAt = event.payload.nextRefreshAt;
-          secondsSinceLastUpdate = 0;
-          updateTimers();
-          callbacks.setError(null);
-          callbacks.setLoading(false);
-        },
-      ),
+      await listen("usage-updated", (event) => {
+        usageData = event.payload.usage;
+        lastUpdateAt = Date.now();
+        nextRefreshAt = event.payload.nextRefreshAt;
+        secondsSinceLastUpdate = 0;
+        updateTimers();
+        callbacks.setError(null);
+        callbacks.setLoading(false);
+      }),
     );
 
     unlistenFns.push(
-      await listen<{ provider: string; error: string }>("usage-error", (event) => {
+      await listen("usage-error", (event) => {
         callbacks.setError(event.payload.error);
         callbacks.setLoading(false);
       }),

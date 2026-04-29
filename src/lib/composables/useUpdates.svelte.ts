@@ -2,8 +2,12 @@
  * Auto-update composable for checking and installing app updates
  */
 
-import { check, type Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+import {
+  checkForUpdates as checkForElectrobunUpdates,
+  downloadAndInstallUpdate,
+  restartApp as restartElectrobunApp,
+  type Update,
+} from "$lib/electrobunClient";
 
 export type UpdateStatus =
   | "idle"
@@ -38,11 +42,15 @@ export function useUpdates() {
     error = null;
 
     try {
-      const update = await check();
+      const result = await checkForElectrobunUpdates();
       lastChecked = new Date();
 
-      if (update) {
-        availableUpdate = update;
+      if (result.status === "error") {
+        throw new Error(result.error);
+      }
+
+      if (result.data.updateAvailable || result.data.updateReady) {
+        availableUpdate = result.data;
         status = "available";
         return true;
       } else {
@@ -70,25 +78,11 @@ export function useUpdates() {
     progress = { contentLength: null, downloaded: 0 };
 
     try {
-      await availableUpdate.downloadAndInstall((event) => {
-        switch (event.event) {
-          case "Started":
-            progress = {
-              contentLength: event.data.contentLength ?? null,
-              downloaded: 0,
-            };
-            break;
-          case "Progress":
-            progress = {
-              ...progress,
-              downloaded: progress.downloaded + event.data.chunkLength,
-            };
-            break;
-          case "Finished":
-            status = "ready";
-            break;
-        }
-      });
+      const result = await downloadAndInstallUpdate();
+      if (result.status === "error") {
+        throw new Error(result.error);
+      }
+      availableUpdate = result.data;
 
       status = "ready";
     } catch (e) {
@@ -102,7 +96,10 @@ export function useUpdates() {
    */
   async function restartApp(): Promise<void> {
     try {
-      await relaunch();
+      const result = await restartElectrobunApp();
+      if (result.status === "error") {
+        throw new Error(result.error);
+      }
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
       status = "error";

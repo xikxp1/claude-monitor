@@ -2,13 +2,7 @@
  * Settings composable - manages provider selection, credentials, general settings, and notifications
  */
 
-import {
-  disable as disableAutostart,
-  enable as enableAutostart,
-  isEnabled as isAutostartEnabled,
-} from "@tauri-apps/plugin-autostart";
-import { LazyStore } from "@tauri-apps/plugin-store";
-import { commands } from "$lib/bindings.generated";
+import { appStore, autostart, commands } from "$lib/electrobunClient";
 import { cleanupOldData } from "$lib/historyStorage";
 import type { NotificationSettings, ProviderKind, ProviderStatus } from "$lib/types";
 import {
@@ -48,10 +42,7 @@ function emptyProviderStatuses(): Record<ProviderKind, ProviderStatus> {
 
 export function useSettings(callbacks: SettingsCallbacks = {}) {
   const { onSuccess, onError } = callbacks;
-  const store = new LazyStore("settings.json", {
-    autoSave: true,
-    defaults: {},
-  });
+  const store = appStore;
 
   let showSettings = $state(false);
   let settingsTab: "account" | "notifications" | "general" | "updates" =
@@ -140,7 +131,7 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
     }
 
     try {
-      autostartEnabled = await isAutostartEnabled();
+      autostartEnabled = await autostart.isEnabled();
     } catch {
       autostartEnabled = false;
     }
@@ -268,9 +259,9 @@ export function useSettings(callbacks: SettingsCallbacks = {}) {
   async function toggleAutostart(enabled: boolean) {
     try {
       if (enabled) {
-        await enableAutostart();
+        await autostart.enable();
       } else {
-        await disableAutostart();
+        await autostart.disable();
       }
       autostartEnabled = enabled;
       onSuccess?.(enabled ? "Autostart enabled" : "Autostart disabled");

@@ -4,6 +4,15 @@ Complete implementation plan for Claude Monitor.
 
 ## Completed
 
+### Phase 10: Electrobun Migration
+- [x] Replaced Tauri frontend APIs with typed Electrobun RPC adapter
+- [x] Added Electrobun config and build scripts
+- [x] Ported provider fetching, validation, settings, OS keychain adapters, history, notifications, auto-refresh, autostart, and updater entrypoints to Bun modules
+- [x] Preserved shared command result shapes for the Svelte UI
+- [x] Built Svelte output into `web-build/` and Electrobun artifacts into `build/` / `artifacts/`
+- [x] Added compiled macOS `NSPopover` bridge in `native/macos/ClaudeMonitorPopover.m`, anchored to Electrobun's native tray item through `src/bun/native/popover.ts`
+- [x] Updated architecture and README documentation for Electrobun
+
 ### Phase 1: Core Infrastructure
 
 #### 1.1 System Tray Setup
@@ -131,6 +140,7 @@ Complete implementation plan for Claude Monitor.
 - [x] Track notification state in `AppState` to avoid duplicates
 - [x] Auto-reset notification state when usage resets (drops > 20%)
 - [x] Load notification settings/state from store on startup
+- [x] Persist mutated notification state after refresh so threshold/time-remaining dedupe survives app restarts
 - [x] Process notifications in `auto_refresh.rs` after each fetch
 - [x] Fire notifications via `tauri-plugin-notification` Rust API
 - [x] `set_notification_settings` command to sync frontend settings to backend
@@ -193,22 +203,22 @@ Complete implementation plan for Claude Monitor.
 
 ### Phase 7: Secure Token Storage
 
-#### 7.1 OS Keychain Integration (Rust Backend)
-- [x] Add `keyring` crate with platform-native features:
-  - `apple-native` for macOS Keychain
-  - `windows-native` for Windows Credential Manager
-  - `linux-native-sync-persistent` for Linux Secret Service
-- [x] Implement Rust functions in `credentials.rs`:
-  - `load_credentials()` - Load credentials from OS keychain on app startup
-  - `save_credentials()` - Save credentials to OS keychain
-  - `delete_credentials()` - Clear credentials from OS keychain
+#### 7.1 OS Keychain Integration
+- [x] Use `@napi-rs/keyring` from the Bun backend for platform-native secure storage:
+  - macOS Keychain
+  - Windows Credential Manager
+  - Linux Secret Service
+- [x] Implement Bun functions in `src/bun/credentials.ts`:
+  - `loadCredentials()` - Load credentials from OS keychain on app startup
+  - `saveCredentials()` - Save credentials to OS keychain
+  - `deleteCredentials()` - Clear credentials from OS keychain
 - [x] Load credentials from keychain in setup function (before auto-refresh starts)
 - [x] `save_credentials` command - Validates, saves to keychain, updates in-memory state
 - [x] `clear_credentials` command - Deletes from keychain and clears state
 - [x] `get_is_configured` command - Check if credentials exist without exposing them
-- [x] Credentials never pass through frontend - only exist in:
+- [x] Credentials are never passed through shell command arguments and only exist in:
   - User form input (briefly, during setup)
-  - Rust backend (memory + OS-native secure storage)
+  - Bun backend memory + OS-native secure storage
 
 ### Phase 8: Charts & Usage Analytics
 

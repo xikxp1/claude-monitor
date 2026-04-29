@@ -50,9 +50,8 @@ Download the latest release for your platform from [GitHub Releases](https://git
 
 ### Prerequisites
 
-- [Rust](https://rustup.rs/) (stable)
 - [Bun](https://bun.sh/)
-- Platform dependencies: [Tauri prerequisites](https://tauri.app/start/prerequisites/)
+- Platform WebView support required by [Electrobun](https://blackboard.sh/electrobun/docs/)
 
 ### Development
 
@@ -63,21 +62,22 @@ cd claude-monitor
 bun install
 
 # Run in development
-bun run tauri dev
+bun run dev
 
 # Run tests
-bun run test                      # Frontend
-cd src-tauri && cargo test        # Backend
+bun run test
 
 # Build for production
-bun run tauri build
+bun run build
 ```
 
 ### Project Structure
 
 ```
 src/                  # Frontend (SvelteKit 5 + TypeScript)
-src-tauri/            # Backend (Rust + Tauri 2)
+src/bun/              # Electrobun main process and backend services
+src/shared/           # Shared RPC and data contracts
+electrobun.config.ts  # Electrobun build/runtime configuration
 .github/workflows/    # CI/CD (test, build, release)
 ```
 
