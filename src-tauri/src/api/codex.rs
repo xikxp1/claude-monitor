@@ -186,7 +186,7 @@ fn get_auth_path() -> PathBuf {
         return PathBuf::from(codex_home).join("auth.json");
     }
 
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = dirs::home_dir().unwrap_or_default();
     PathBuf::from(home).join(".codex").join("auth.json")
 }
 
